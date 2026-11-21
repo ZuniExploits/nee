@@ -1,47 +1,56 @@
--- Função para carregar com segurança
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║  N3ON HUB - Loader v3                                      ║
+-- ║  Aguarda base ficar Ready antes de carregar módulo         ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local BASE_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/Zuno_hub_base.lua"
+local ETW_URL  = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/ETW.Lua"
+local KING_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/King.Lua"
+
 local function SafeLoad(url)
-    local success, result = pcall(function()
-        return game:HttpGet(url)
-    end)
-    
-    if success and result then
-        local func, err = loadstring(result)
-        if func then
-            func()
-        else
-            warn("Erro no loadstring: " .. err)
-        end
-    else
-        warn("Erro ao baixar o script: " .. url)
+    local ok, src = pcall(game.HttpGet, game, url)
+    if not ok or type(src) ~= "string" or #src < 10 then
+        warn("[Loader] Falha download: " .. url)
+        return false
     end
+    local fn, err = loadstring(src, "N3onChunk_" .. url)
+    if not fn then
+        warn("[Loader] loadstring erro: " .. tostring(err))
+        return false
+    end
+    local ok2, err2 = pcall(fn)
+    if not ok2 then
+        warn("[Loader] exec erro: " .. tostring(err2))
+        return false
+    end
+    return true
 end
 
--- Carregar base (define _G.N3onHub)
-SafeLoad("https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/Zuno_hub_base.lua")
-
--- Aguardar a base carregar completamente
-local timeout = 0
-while not _G.N3onHub and timeout < 50 do
-    task.wait(0.1)
-    timeout = timeout + 1
-end
-
-if not _G.N3onHub then
-    warn("Base do hub não carregou a tempo.")
+-- 1) Carrega base
+if not SafeLoad(BASE_URL) then
     return
 end
 
--- Identificador do jogo (use UniverseId para agrupar todos os lugares do mesmo jogo)
--- Caso queira diferenciar por lugar específico, use game.PlaceId
-local jogoId = game.UniverseId   -- substitua por game.GameId se preferir (mas UniverseId é mais confiável)
+-- 2) Espera Ready (max 15s)
+local t = 0
+while not (_G.N3onHub and _G.N3onHub.Ready) and t < 150 do
+    task.wait(0.1)
+    t += 1
+end
+if not (_G.N3onHub and _G.N3onHub.Ready) then
+    warn("[Loader] Base não ficou Ready em 15s.")
+    return
+end
 
-print("UniverseId detectado:", jogoId)
+-- 3) Detecta jogo (GameId = UniverseId)
+local id = game.GameId
+print("[Loader] GameId detectado:", id)
 
--- Carregar módulo específico do jogo
-if jogoId == 4520749081 then          -- Substitua pelo UniverseId correto do jogo "King"
-    SafeLoad("https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/King.Lua")
-elseif jogoId == 16480898254 then     -- Substitua pelo UniverseId correto do jogo "ETW"
-    SafeLoad("https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/ETW.Lua")
+-- 4) Carrega módulo específico
+if id == 4520749081 then
+    SafeLoad(KING_URL)
+elseif id == 16480898254 then
+    SafeLoad(ETW_URL)
 else
-    print("Jogo não suportado. UniverseId: " .. jogoId)
+    print("[Loader] Jogo não suportado (GameId: " .. id .. ")")
 end
