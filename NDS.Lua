@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - NDS MODULE v1.0                                        ║
+-- ║  ZUNI HUB - NDS MODULE v1.1                                        ║
 -- ║  Fling • Aim Fling • Fling All • Safezone • ESP • Utilidades       ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -13,12 +13,12 @@ if Z.NDSLoaded then return end
 Z.NDSLoaded = true
 Z.ModuleName = "NDS"
 
-local C      = Z.Colors
-local S      = Z.SavedStates
-local UI     = Z.UI
-local Player = game:GetService("Players").LocalPlayer
-local UIS    = game:GetService("UserInputService")
-local RS     = game:GetService("RunService")
+local C       = Z.Colors
+local S       = Z.SavedStates
+local UI      = Z.UI
+local Player  = game:GetService("Players").LocalPlayer
+local UIS     = game:GetService("UserInputService")
+local RS      = game:GetService("RunService")
 local Players = game:GetService("Players")
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -35,28 +35,13 @@ Def("espDistance", true)
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS
 -- ═══════════════════════════════════════════════════════════════════════
-local function GetChar(p)
-    p = p or Player
-    return p.Character
-end
-
-local function GetHRP(p)
-    local c = GetChar(p)
-    return c and c:FindFirstChild("HumanoidRootPart")
-end
-
-local function GetHum(p)
-    local c = GetChar(p)
-    return c and c:FindFirstChildOfClass("Humanoid")
-end
-
-local function IsAlive(p)
-    local h = GetHum(p)
-    return h and h.Health > 0
-end
+local function GetChar(p) p = p or Player return p.Character end
+local function GetHRP(p) local c = GetChar(p) return c and c:FindFirstChild("HumanoidRootPart") end
+local function GetHum(p) local c = GetChar(p) return c and c:FindFirstChildOfClass("Humanoid") end
+local function IsAlive(p) local h = GetHum(p) return h and h.Health > 0 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- WIDGET: PLAYER DROPDOWN (lista de jogadores atualizada automaticamente)
+-- WIDGET: PLAYER DROPDOWN
 -- ═══════════════════════════════════════════════════════════════════════
 local function PlayerDropdown(name, callback, desc)
     local card = Z.Card(desc and 62 or 50)
@@ -113,8 +98,7 @@ local function PlayerDropdown(name, callback, desc)
         for _, b in ipairs(itemButtons) do b:Destroy() end
         table.clear(itemButtons)
 
-        local players = Players:GetPlayers()
-        for i, p in ipairs(players) do
+        for i, p in ipairs(Players:GetPlayers()) do
             if p == Player then continue end
             local item = Z.Util.New("TextButton", {
                 Size = UDim2.new(1, 0, 0, 28),
@@ -160,10 +144,7 @@ local function PlayerDropdown(name, callback, desc)
         if isOpen then CloseList() else OpenList() end
     end)
 
-    -- Atualiza lista quando jogadores entram/saem
-    Z.PageTrack(Players.PlayerAdded:Connect(function()
-        if isOpen then RenderItems() end
-    end))
+    Z.PageTrack(Players.PlayerAdded:Connect(function() if isOpen then RenderItems() end end))
     Z.PageTrack(Players.PlayerRemoving:Connect(function(p)
         if selected == p then
             selected = nil
@@ -186,7 +167,7 @@ local function PlayerDropdown(name, callback, desc)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- FLING (genérico — baseado em velocidade angular / colisão)
+-- FLING
 -- ═══════════════════════════════════════════════════════════════════════
 local flingActive = false
 local flingTarget = nil
@@ -194,18 +175,9 @@ local flingConn = nil
 
 local function StopFling()
     flingActive = false
-    if flingConn then
-        pcall(function() flingConn:Disconnect() end)
-        flingConn = nil
-    end
-    -- Restaura HRP se possível
+    if flingConn then pcall(function() flingConn:Disconnect() end) flingConn = nil end
     local hrp = GetHRP()
-    if hrp then
-        pcall(function()
-            hrp.Velocity = Vector3.zero
-            hrp.RotVelocity = Vector3.zero
-        end)
-    end
+    if hrp then pcall(function() hrp.Velocity = Vector3.zero hrp.RotVelocity = Vector3.zero end) end
 end
 
 local function StartFling(targetPlayer)
@@ -217,43 +189,33 @@ local function StartFling(targetPlayer)
 
     flingConn = RS.Heartbeat:Connect(function()
         if not flingActive then return end
-
-        local myChar = GetChar()
-        local myHRP = GetHRP()
-        local tgtHRP = GetHRP(flingTarget)
-        local tgtHum = GetHum(flingTarget)
-
+        local myChar, myHRP = GetChar(), GetHRP()
+        local tgtHRP, tgtHum = GetHRP(flingTarget), GetHum(flingTarget)
         if not (myChar and myHRP and tgtHRP and tgtHum and tgtHum.Health > 0) then
             StopFling()
             Z.Notify("NDS", "Fling parado (alvo morto ou saiu).", C.TextDim, 2)
             return
         end
-
-        -- Teleporta para o alvo e aplica velocidade angular alta
         pcall(function()
             myHRP.CFrame = tgtHRP.CFrame * CFrame.new(0, 0, -1.5)
             myHRP.Velocity = Vector3.new(0, 50, 0)
             myHRP.RotVelocity = Vector3.new(0, 5000, 0)
         end)
     end)
-
     Z.Notify("NDS", "Fling ativado em " .. targetPlayer.Name, C.Success, 3)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- FLING ALL (uma vez — botão)
+-- FLING ALL (uma vez)
 -- ═══════════════════════════════════════════════════════════════════════
 local function FlingAllOnce()
     local myHRP = GetHRP()
     if not myHRP then return end
-
     for _, p in ipairs(Players:GetPlayers()) do
         if p == Player then continue end
-        local hrp = GetHRP(p)
-        local hum = GetHum(p)
+        local hrp, hum = GetHRP(p), GetHum(p)
         if hrp and hum and hum.Health > 0 then
             pcall(function()
-                -- Aproxima e aplica impulso
                 myHRP.CFrame = hrp.CFrame * CFrame.new(0, 0, -1)
                 myHRP.Velocity = Vector3.new(0, 200, 0)
                 myHRP.RotVelocity = Vector3.new(0, 8000, 0)
@@ -265,31 +227,24 @@ local function FlingAllOnce()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- SAFEZONE (quando vida baixa)
+-- SAFEZONE
 -- ═══════════════════════════════════════════════════════════════════════
 local safezoneActive = false
 local safezoneConn = nil
 
 local function StopSafezone()
     safezoneActive = false
-    if safezoneConn then
-        pcall(function() safezoneConn:Disconnect() end)
-        safezoneConn = nil
-    end
+    if safezoneConn then pcall(function() safezoneConn:Disconnect() end) safezoneConn = nil end
 end
 
 local function StartSafezone()
     if safezoneActive then return end
     safezoneActive = true
-
     safezoneConn = RS.Heartbeat:Connect(function()
         if not safezoneActive then return end
-        local hum = GetHum()
-        local hrp = GetHRP()
+        local hum, hrp = GetHum(), GetHRP()
         if not (hum and hrp) then return end
-
         if hum.Health <= S.safezoneHealth and hum.Health > 0 then
-            -- Teleporta para longe (cima) e aplica ghost temporário
             pcall(function()
                 hrp.CFrame = hrp.CFrame + Vector3.new(0, 500, 0)
                 hrp.Velocity = Vector3.zero
@@ -300,7 +255,7 @@ local function StartSafezone()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ESP (Highlights + BillboardGui simples)
+-- ESP
 -- ═══════════════════════════════════════════════════════════════════════
 local espObjects = {}
 local espConn = nil
@@ -370,32 +325,25 @@ end
 
 local function StartESP()
     ClearESP()
-    for _, p in ipairs(Players:GetPlayers()) do
-        CreateESPForPlayer(p)
-    end
+    for _, p in ipairs(Players:GetPlayers()) do CreateESPForPlayer(p) end
 
     espConn = RS.RenderStepped:Connect(function()
         if not S.espEnabled then return end
         local myHRP = GetHRP()
         if not myHRP then return end
-
         for p, data in pairs(espObjects) do
-            local char = GetChar(p)
-            local hrp = GetHRP(p)
-            local hum = GetHum(p)
+            local char, hrp, hum = GetChar(p), GetHRP(p), GetHum(p)
             if not (char and hrp and hum and hum.Health > 0) then
                 if data.billboard then data.billboard.Enabled = false end
                 if data.highlight then data.highlight.Enabled = false end
                 continue
             end
-
             if data.highlight then data.highlight.Enabled = true end
             if data.billboard then
                 data.billboard.Enabled = true
-                local nameLbl = data.billboard:FindFirstChild("Name")
+                local nameLbl   = data.billboard:FindFirstChild("Name")
                 local healthLbl = data.billboard:FindFirstChild("Health")
-                local distLbl = data.billboard:FindFirstChild("Distance")
-
+                local distLbl   = data.billboard:FindFirstChild("Distance")
                 if nameLbl then nameLbl.Visible = S.espName end
                 if healthLbl then
                     healthLbl.Visible = S.espHealth
@@ -426,19 +374,14 @@ local function StartESP()
 end
 
 local function StopESP()
-    if espConn then
-        pcall(function() espConn:Disconnect() end)
-        espConn = nil
-    end
+    if espConn then pcall(function() espConn:Disconnect() end) espConn = nil end
     ClearESP()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- UTILIDADES: Noclip, Inf Jump, Fly
 -- ═══════════════════════════════════════════════════════════════════════
-local noclipConn = nil
-local flyConn = nil
-local infJumpConn = nil
+local noclipConn, flyConn, infJumpConn = nil, nil, nil
 local flyActive, flySpeed = false, 100
 
 local function StartNoclip()
@@ -447,18 +390,13 @@ local function StartNoclip()
         local char = GetChar()
         if not char then return end
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                pcall(function() part.CanCollide = false end)
-            end
+            if part:IsA("BasePart") then pcall(function() part.CanCollide = false end) end
         end
     end)
 end
 
 local function StopNoclip()
-    if noclipConn then
-        pcall(function() noclipConn:Disconnect() end)
-        noclipConn = nil
-    end
+    if noclipConn then pcall(function() noclipConn:Disconnect() end) noclipConn = nil end
     local char = GetChar()
     if char then
         for _, part in ipairs(char:GetDescendants()) do
@@ -472,8 +410,7 @@ end
 local function StartFly()
     if flyConn then return end
     flyActive = true
-    local bodyVel = nil
-    local bodyGyro = nil
+    local bodyVel, bodyGyro = nil, nil
 
     flyConn = RS.Heartbeat:Connect(function()
         if not flyActive then return end
@@ -497,29 +434,25 @@ local function StartFly()
         end
 
         local cam = workspace.CurrentCamera
-        local moveDir = Vector3.zero
-        if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir += cam.CFrame.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir -= cam.CFrame.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir -= cam.CFrame.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir += cam.CFrame.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir += Vector3.new(0, 1, 0) end
-        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then moveDir -= Vector3.new(0, 1, 0) end
+        local dir = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then dir += cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then dir -= cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then dir -= cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then dir += cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.new(0, 1, 0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir -= Vector3.new(0, 1, 0) end
 
-        bodyVel.Velocity = moveDir * flySpeed
+        bodyVel.Velocity = dir * flySpeed
         bodyGyro.CFrame = cam.CFrame
     end)
 end
 
 local function StopFly()
     flyActive = false
-    if flyConn then
-        pcall(function() flyConn:Disconnect() end)
-        flyConn = nil
-    end
+    if flyConn then pcall(function() flyConn:Disconnect() end) flyConn = nil end
     local hrp = GetHRP()
     if hrp then
-        local bv = hrp:FindFirstChild("ZuniFly")
-        local bg = hrp:FindFirstChild("ZuniFlyGyro")
+        local bv, bg = hrp:FindFirstChild("ZuniFly"), hrp:FindFirstChild("ZuniFlyGyro")
         if bv then bv:Destroy() end
         if bg then bg:Destroy() end
     end
@@ -529,17 +462,12 @@ local function StartInfJump()
     if infJumpConn then return end
     infJumpConn = UIS.JumpRequest:Connect(function()
         local hum = GetHum()
-        if hum then
-            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
     end)
 end
 
 local function StopInfJump()
-    if infJumpConn then
-        pcall(function() infJumpConn:Disconnect() end)
-        infJumpConn = nil
-    end
+    if infJumpConn then pcall(function() infJumpConn:Disconnect() end) infJumpConn = nil end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -550,12 +478,11 @@ local function LoadMain()
     Z.Sep("🎯  FLING")
     Z.Button("Fling All (uma vez)", C.Warning, FlingAllOnce)
 
-    -- Dropdown de alvo para Aim Fling
-    UI.flingTarget = PlayerDropdown("Alvo do Fling", function(p)
-        flingTarget = p
-    end, "Escolha um jogador para flingar continuamente")
+    UI.flingTarget = PlayerDropdown("Alvo do Fling", function(p) flingTarget = p end,
+        "Escolha um jogador para flingar continuamente")
 
-    local flingToggle = Z.Toggle("Aim Fling (contínuo)", false, function(v)
+    local flingToggle
+    flingToggle = Z.Toggle("Aim Fling (contínuo)", false, function(v)
         if v then
             local target = UI.flingTarget and UI.flingTarget.Get()
             if not target then
@@ -581,41 +508,30 @@ local function LoadMain()
         S.safezoneEnabled = v
         if v then StartSafezone() else StopSafezone() end
     end, "Teleporta para cima quando a vida fica abaixo do limite")
-    Z.Slider("Vida mínima", 10, 80, S.safezoneHealth, function(v)
-        S.safezoneHealth = v
-    end, { step = 5, suffix = " HP" })
+    Z.Slider("Vida mínima", 10, 80, S.safezoneHealth, function(v) S.safezoneHealth = v end,
+        { step = 5, suffix = " HP" })
 
     -- ESP ----------------------------------------------------------------
     Z.Sep("👁️  ESP")
-    local espToggle = Z.Toggle("Ativar ESP", S.espEnabled, function(v)
+    Z.Toggle("Ativar ESP", S.espEnabled, function(v)
         S.espEnabled = v
         if v then StartESP() else StopESP() end
     end, "Mostra nome, vida e distância dos jogadores")
-
     Z.Toggle("Mostrar nome", S.espName, function(v) S.espName = v end)
     Z.Toggle("Mostrar vida", S.espHealth, function(v) S.espHealth = v end)
     Z.Toggle("Mostrar distância", S.espDistance, function(v) S.espDistance = v end)
 
     -- UTILIDADES ---------------------------------------------------------
     Z.Sep("⚙️  UTILIDADES")
+    Z.Toggle("Noclip", false, function(v) if v then StartNoclip() else StopNoclip() end end,
+        "Atravessa paredes e objetos")
+    Z.Toggle("Infinite Jump", false, function(v) if v then StartInfJump() else StopInfJump() end end,
+        "Pula infinitas vezes no ar")
+    Z.Toggle("Fly", false, function(v) if v then StartFly() else StopFly() end end,
+        "Voa com WASD + Space/Ctrl")
+    Z.Slider("Velocidade do Fly", 20, 500, flySpeed, function(v) flySpeed = v end,
+        { step = 10, suffix = " studs/s" })
 
-    local noclipToggle = Z.Toggle("Noclip", false, function(v)
-        if v then StartNoclip() else StopNoclip() end
-    end, "Atravessa paredes e objetos")
-
-    local infJumpToggle = Z.Toggle("Infinite Jump", false, function(v)
-        if v then StartInfJump() else StopInfJump() end
-    end, "Pula infinitas vezes no ar")
-
-    local flyToggle = Z.Toggle("Fly", false, function(v)
-        if v then StartFly() else StopFly() end
-    end, "Voa com WASD + Space/Ctrl")
-
-    Z.Slider("Velocidade do Fly", 20, 500, flySpeed, function(v)
-        flySpeed = v
-    end, { step = 10, suffix = " studs/s" })
-
-    -- Limpeza ao trocar de aba
     Z.PageTrack({ Disconnect = function()
         StopFling()
         StopSafezone()
@@ -628,5 +544,5 @@ end
 
 Z.AddTab("NDS", "⚔️", LoadMain)
 Z.SelectTab("NDS")
-Z.Notify("Zuni Hub", "Módulo NDS v1.0 carregado!", C.Success, 3)
-print("⚔️ NDS Module v1.0 iniciado")
+Z.Notify("Zuni Hub", "Módulo NDS v1.1 carregado!", C.Success, 3)
+print("⚔️ NDS Module v1.1 iniciado")
