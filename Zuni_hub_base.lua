@@ -497,6 +497,101 @@ function Z.Button(name, color, callback)
     return b
 end
 
+function Z.Dropdown(name, options, default, callback, desc)
+    options = options or {}
+    local labelH = desc and 29 or 0
+    local baseH = 56 + labelH
+    local card = Card(baseH)
+    card.ClipsDescendants = true
+
+    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(16, 10), UDim2.new(1, -32, 0, 20))
+    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(16, 29), UDim2.new(1, -32, 0, 16)) end
+
+    local selY = desc and 46 or 30
+    local selectBtn = New("TextButton", {
+        Size = UDim2.new(1, -32, 0, 32), Position = UDim2.fromOffset(16, selY),
+        BackgroundColor3 = Colors.CardHover, Text = "", AutoButtonColor = false, BorderSizePixel = 0,
+    }, card)
+    Corner(selectBtn, 8)
+    Stroke(selectBtn, Colors.Border, 1, 0.5)
+    local valLbl = Label(selectBtn, default and tostring(default) or "Selecionar...", 13,
+        default and Colors.Text or Colors.TextMuted, F_MED, UDim2.fromOffset(12, 0), UDim2.new(1, -34, 1, 0))
+    local arrow = Label(selectBtn, "▾", 14, Colors.TextDim, F_BOLD, UDim2.new(1, -26, 0, 0), UDim2.fromOffset(20, 32), Enum.TextXAlignment.Center)
+
+    local listHolder = New("ScrollingFrame", {
+        Size = UDim2.new(1, -32, 0, 0), Position = UDim2.fromOffset(16, selY + 38),
+        BackgroundColor3 = Colors.Bg, BorderSizePixel = 0, ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Colors.Accent, CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
+    }, card)
+    Corner(listHolder, 8)
+    New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, listHolder)
+
+    local selected, isOpen, itemButtons = default, false, {}
+
+    local function CloseList()
+        if not isOpen then return end
+        isOpen = false
+        Tween(card, 0.15, { Size = UDim2.new(1, 0, 0, baseH) })
+        Tween(arrow, 0.15, { Rotation = 0 })
+        task.delay(0.15, function() if not isOpen and listHolder.Parent then listHolder.Visible = false end end)
+    end
+
+    local function RenderItems()
+        for _, b in ipairs(itemButtons) do b:Destroy() end
+        table.clear(itemButtons)
+        for i, opt in ipairs(options) do
+            local item = New("TextButton", {
+                Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = Colors.Accent, BackgroundTransparency = 1,
+                Text = "  " .. tostring(opt), Font = F_MED, TextSize = 13, TextColor3 = Colors.TextDim,
+                TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = i,
+            }, listHolder)
+            item.MouseEnter:Connect(function() Tween(item, 0.1, { BackgroundTransparency = 0.45 }) end)
+            item.MouseLeave:Connect(function() Tween(item, 0.1, { BackgroundTransparency = 1 }) end)
+            item.MouseButton1Click:Connect(function()
+                selected = opt
+                valLbl.Text, valLbl.TextColor3 = tostring(opt), Colors.Text
+                CloseList()
+                Safe(callback, opt)
+            end)
+            table.insert(itemButtons, item)
+        end
+    end
+    RenderItems()
+
+    local function OpenList()
+        if isOpen or #options == 0 then return end
+        isOpen = true
+        listHolder.Visible = true
+        local h = math.min(150, #options * 28 + 4)
+        listHolder.Size = UDim2.new(1, -32, 0, h)
+        Tween(card, 0.15, { Size = UDim2.new(1, 0, 0, baseH + h + 8) })
+        Tween(arrow, 0.15, { Rotation = 180 })
+    end
+
+    selectBtn.MouseButton1Click:Connect(function() if isOpen then CloseList() else OpenList() end end)
+
+    local obj = { Frame = card }
+    function obj.SetOptions(newOptions)
+        local wasOpen = isOpen
+        options = newOptions or {}
+        RenderItems()
+        if selected ~= nil and not table.find(options, selected) then
+            selected = nil
+            valLbl.Text, valLbl.TextColor3 = "Selecionar...", Colors.TextMuted
+        end
+        if wasOpen then isOpen = false; OpenList() end
+    end
+    function obj.Get() return selected end
+    function obj.Set(v, silent)
+        selected = v
+        valLbl.Text = v and tostring(v) or "Selecionar..."
+        valLbl.TextColor3 = v and Colors.Text or Colors.TextMuted
+        if not silent then Safe(callback, v) end
+    end
+    return obj
+end
+
 -- ═══════════════════════════════════════════════════════════════════════
 -- ARRASTAR
 -- ═══════════════════════════════════════════════════════════════════════
