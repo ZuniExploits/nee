@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - BASE v5.0                                              ║
--- ║  UI premium, widgets estáveis, abas Home e Player                  ║
+-- ║  ZUNI HUB - BASE v6.0                                              ║
+-- ║  UI premium, legível, widgets estáveis + PlayerDropdown            ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 local Players            = game:GetService("Players")
@@ -17,21 +17,23 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 -- PALETA / FONTES
 -- ═══════════════════════════════════════════════════════════════════════
 local Colors = {
-    Bg          = Color3.fromRGB(13, 14, 20),
-    Sidebar     = Color3.fromRGB(18, 19, 28),
-    Card        = Color3.fromRGB(26, 27, 39),
-    CardHover   = Color3.fromRGB(36, 38, 54),
+    Bg          = Color3.fromRGB(12, 13, 18),
+    Sidebar     = Color3.fromRGB(17, 18, 26),
+    Card        = Color3.fromRGB(25, 26, 37),
+    CardHover   = Color3.fromRGB(35, 37, 52),
+    CardSoft    = Color3.fromRGB(30, 32, 45),
     Accent      = Color3.fromRGB(99, 142, 255),
-    AccentLight = Color3.fromRGB(150, 185, 255),
-    AccentDark  = Color3.fromRGB(60, 95, 190),
+    AccentLight = Color3.fromRGB(160, 190, 255),
+    AccentDark  = Color3.fromRGB(55, 88, 180),
     Purple      = Color3.fromRGB(170, 120, 255),
     Success     = Color3.fromRGB(70, 210, 125),
     Warning     = Color3.fromRGB(255, 195, 70),
     Danger      = Color3.fromRGB(240, 75, 90),
     Text        = Color3.fromRGB(245, 246, 255),
-    TextDim     = Color3.fromRGB(165, 168, 190),
-    TextMuted   = Color3.fromRGB(110, 113, 138),
+    TextDim     = Color3.fromRGB(180, 184, 205),
+    TextMuted   = Color3.fromRGB(120, 124, 148),
     Border      = Color3.fromRGB(52, 54, 76),
+    BorderSoft  = Color3.fromRGB(40, 42, 58),
     Divider     = Color3.fromRGB(38, 40, 56),
 }
 
@@ -39,7 +41,7 @@ local F_REG, F_MED, F_BOLD, F_BLACK =
     Enum.Font.Gotham, Enum.Font.GothamMedium, Enum.Font.GothamBold, Enum.Font.GothamBlack
 
 -- ═══════════════════════════════════════════════════════════════════════
--- LIMPEZA DE EXECUÇÕES ANTERIORES + ONDE CRIAR A GUI
+-- LIMPEZA + ONDE CRIAR A GUI
 -- ═══════════════════════════════════════════════════════════════════════
 local function SafeParent()
     local ok, h = pcall(function() return gethui and gethui() end)
@@ -75,7 +77,7 @@ do
 end
 
 local Z = {
-    Version = "5.0", Alive = true, Ready = false,
+    Version = "6.0", Alive = true, Ready = false,
     Colors = Colors, SavedStates = {}, UI = {}, Connections = {},
     Tabs = {}, TabOrder = {}, CurrentTab = nil,
     ModuleName = "Nenhum", PageGen = 0, IsVisible = false,
@@ -151,9 +153,9 @@ local NotifyGui = New("ScreenGui", {
 -- NOTIFICAÇÕES
 -- ═══════════════════════════════════════════════════════════════════════
 local NotifyHolder = New("Frame", {
-    BackgroundTransparency = 1, Size = UDim2.new(0, 320, 1, -20), Position = UDim2.new(1, -336, 0, 16),
+    BackgroundTransparency = 1, Size = UDim2.new(0, 340, 1, -24), Position = UDim2.new(1, -356, 0, 18),
 }, NotifyGui)
-New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, NotifyHolder)
+New("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, NotifyHolder)
 local notifyN = 0
 
 function Z.Notify(title, text, color, duration)
@@ -164,21 +166,25 @@ function Z.Notify(title, text, color, duration)
         Size = UDim2.new(1, 0, 0, 0), BackgroundColor3 = Colors.Card, BorderSizePixel = 0,
         ClipsDescendants = true, LayoutOrder = notifyN,
     }, NotifyHolder)
-    Corner(toast, 10)
-    Stroke(toast, color, 1, 0.5)
-    Corner(New("Frame", { Size = UDim2.new(0, 4, 1, -20), Position = UDim2.fromOffset(8, 10), BackgroundColor3 = color, BorderSizePixel = 0 }, toast), 2)
-    Label(toast, title, 14, Colors.Text, F_BOLD, UDim2.fromOffset(22, 8), UDim2.new(1, -34, 0, 20))
+    Corner(toast, 12)
+    Stroke(toast, color, 1, 0.45)
+    Corner(New("Frame", {
+        Size = UDim2.new(0, 4, 1, -24), Position = UDim2.fromOffset(10, 12),
+        BackgroundColor3 = color, BorderSizePixel = 0,
+    }, toast), 2)
+    Label(toast, title, 14, Colors.Text, F_BOLD, UDim2.fromOffset(24, 10), UDim2.new(1, -36, 0, 20))
     New("TextLabel", {
         BackgroundTransparency = 1, Text = text or "", Font = F_REG, TextSize = 12, TextColor3 = Colors.TextDim,
         TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-        Position = UDim2.fromOffset(22, 29), Size = UDim2.new(1, -34, 0, 30),
+        Position = UDim2.fromOffset(24, 32), Size = UDim2.new(1, -36, 0, 30),
     }, toast)
     local bar = New("Frame", {
-        Size = UDim2.new(1, -24, 0, 3), Position = UDim2.new(0, 12, 1, -8), BackgroundColor3 = color, BorderSizePixel = 0,
+        Size = UDim2.new(1, -28, 0, 3), Position = UDim2.new(0, 14, 1, -9),
+        BackgroundColor3 = color, BorderSizePixel = 0,
     }, toast)
     Corner(bar, 2)
 
-    Tween(toast, 0.3, { Size = UDim2.new(1, 0, 0, 72) }, Enum.EasingStyle.Back)
+    Tween(toast, 0.3, { Size = UDim2.new(1, 0, 0, 76) }, Enum.EasingStyle.Back)
     Tween(bar, duration, { Size = UDim2.new(0, 0, 0, 3) }, Enum.EasingStyle.Linear)
     task.delay(duration, function()
         if not toast.Parent then return end
@@ -190,15 +196,15 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 -- JANELA PRINCIPAL
 -- ═══════════════════════════════════════════════════════════════════════
-local WIN_W, WIN_H = 720, 500
+local WIN_W, WIN_H = 760, 540
 
 local Main = New("Frame", {
     Name = "Main", Size = UDim2.fromOffset(WIN_W, WIN_H), Position = UDim2.fromScale(0.5, 0.5),
     AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Colors.Bg, BorderSizePixel = 0,
     Visible = false, Active = true,
 }, Hub)
-Corner(Main, 16)
-Stroke(Main, Colors.Border, 1.5, 0.3)
+Corner(Main, 18)
+Stroke(Main, Colors.Border, 1.5, 0.25)
 local WinScale = New("UIScale", { Scale = 1 }, Main)
 
 local function Viewport()
@@ -212,22 +218,25 @@ end
 
 -- Sidebar ---------------------------------------------------------------
 local Sidebar = New("Frame", {
-    Size = UDim2.new(0, 190, 1, 0), BackgroundColor3 = Colors.Sidebar, BorderSizePixel = 0,
+    Size = UDim2.new(0, 200, 1, 0), BackgroundColor3 = Colors.Sidebar, BorderSizePixel = 0,
 }, Main)
-Corner(Sidebar, 16)
-New("Frame", { Size = UDim2.new(0, 20, 1, 0), Position = UDim2.new(1, -20, 0, 0), BackgroundColor3 = Colors.Sidebar, BorderSizePixel = 0 }, Sidebar)
+Corner(Sidebar, 18)
+New("Frame", {
+    Size = UDim2.new(0, 22, 1, 0), Position = UDim2.new(1, -22, 0, 0),
+    BackgroundColor3 = Colors.Sidebar, BorderSizePixel = 0,
+}, Sidebar)
 
 local LogoCard = New("Frame", {
-    Size = UDim2.new(1, -24, 0, 58), Position = UDim2.fromOffset(12, 14),
+    Size = UDim2.new(1, -28, 0, 62), Position = UDim2.fromOffset(14, 16),
     BackgroundColor3 = Colors.Card, BorderSizePixel = 0, Active = true,
 }, Sidebar)
-Corner(LogoCard, 12)
-Stroke(LogoCard, Colors.Accent, 1, 0.65)
-Label(LogoCard, "⚡ ZUNI", 20, Colors.Text, F_BLACK, UDim2.fromOffset(14, 7), UDim2.new(1, -20, 0, 26))
-Label(LogoCard, "HUB  v" .. Z.Version, 11, Colors.AccentLight, F_MED, UDim2.fromOffset(15, 33), UDim2.new(1, -20, 0, 16))
+Corner(LogoCard, 14)
+Stroke(LogoCard, Colors.Accent, 1, 0.6)
+Label(LogoCard, "⚡ ZUNI", 22, Colors.Text, F_BLACK, UDim2.fromOffset(16, 8), UDim2.new(1, -24, 0, 28))
+Label(LogoCard, "HUB  v" .. Z.Version, 11, Colors.AccentLight, F_MED, UDim2.fromOffset(17, 36), UDim2.new(1, -24, 0, 16))
 
 local TabsScroll = New("ScrollingFrame", {
-    Size = UDim2.new(1, -16, 1, -150), Position = UDim2.fromOffset(8, 86),
+    Size = UDim2.new(1, -20, 1, -170), Position = UDim2.fromOffset(10, 94),
     BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
     ScrollBarImageColor3 = Colors.Accent, CanvasSize = UDim2.new(),
     AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -237,20 +246,21 @@ New("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.Layou
 New("TextLabel", {
     BackgroundTransparency = 1, Text = "INSERT ou R-CTRL\nmostra / esconde o hub",
     Font = F_REG, TextSize = 11, TextColor3 = Colors.TextMuted, TextWrapped = true,
-    Position = UDim2.new(0, 12, 1, -52), Size = UDim2.new(1, -24, 0, 40),
+    Position = UDim2.new(0, 14, 1, -56), Size = UDim2.new(1, -28, 0, 42),
+    TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
 }, Sidebar)
 
 -- Conteúdo --------------------------------------------------------------
 local Content = New("Frame", {
-    Size = UDim2.new(1, -190, 1, 0), Position = UDim2.fromOffset(190, 0), BackgroundTransparency = 1,
+    Size = UDim2.new(1, -200, 1, 0), Position = UDim2.fromOffset(200, 0), BackgroundTransparency = 1,
 }, Main)
 
 local Header = New("Frame", {
-    Size = UDim2.new(1, 0, 0, 60), BackgroundTransparency = 1, Active = true,
+    Size = UDim2.new(1, 0, 0, 64), BackgroundTransparency = 1, Active = true,
 }, Content)
-local TabTitle = Label(Header, "Home", 22, Colors.Text, F_BOLD, UDim2.fromOffset(22, 0), UDim2.new(1, -120, 1, 0))
+local TabTitle = Label(Header, "Home", 22, Colors.Text, F_BOLD, UDim2.fromOffset(24, 0), UDim2.new(1, -130, 1, 0))
 local hLine = New("Frame", {
-    Size = UDim2.new(1, -32, 0, 2), Position = UDim2.fromOffset(16, 60), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0,
+    Size = UDim2.new(1, -40, 0, 2), Position = UDim2.fromOffset(20, 64), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0,
 }, Content)
 Corner(hLine, 1)
 New("UIGradient", {
@@ -263,16 +273,16 @@ New("UIGradient", {
 }, hLine)
 
 local Scroll = New("ScrollingFrame", {
-    Size = UDim2.new(1, -32, 1, -84), Position = UDim2.fromOffset(16, 72),
+    Size = UDim2.new(1, -40, 1, -92), Position = UDim2.fromOffset(20, 78),
     BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
     ScrollBarImageColor3 = Colors.Accent, CanvasSize = UDim2.new(),
     AutomaticCanvasSize = Enum.AutomaticSize.Y,
 }, Content)
-New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, Scroll)
-New("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 10) }, Scroll)
+New("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, Scroll)
+New("UIPadding", { PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 14) }, Scroll)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- PÁGINAS (limpeza, conexões por página)
+-- PÁGINAS
 -- ═══════════════════════════════════════════════════════════════════════
 local PageConns = {}
 local order = 0
@@ -311,16 +321,19 @@ local function Card(height)
     local f = New("Frame", {
         Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = Colors.Card, BorderSizePixel = 0, LayoutOrder = NextOrder(),
     }, Scroll)
-    Corner(f, 10)
-    local st = Stroke(f, Colors.Border, 1, 0.6)
+    Corner(f, 12)
+    local st = Stroke(f, Colors.BorderSoft, 1, 0.35)
     return f, st
 end
 Z.Card = Card
 
 function Z.Sep(text)
-    local f = New("Frame", { Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, LayoutOrder = NextOrder() }, Scroll)
-    Corner(New("Frame", { Size = UDim2.fromOffset(3, 16), Position = UDim2.fromOffset(2, 13), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0 }, f), 2)
-    Label(f, text, 13, Colors.AccentLight, F_BOLD, UDim2.fromOffset(14, 10), UDim2.new(1, -14, 0, 22))
+    local f = New("Frame", { Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, LayoutOrder = NextOrder() }, Scroll)
+    Corner(New("Frame", {
+        Size = UDim2.fromOffset(3, 18), Position = UDim2.fromOffset(2, 13),
+        BackgroundColor3 = Colors.Accent, BorderSizePixel = 0,
+    }, f), 2)
+    Label(f, text, 13, Colors.AccentLight, F_BOLD, UDim2.fromOffset(16, 10), UDim2.new(1, -16, 0, 24))
     return f
 end
 
@@ -329,15 +342,16 @@ function Z.Info(text)
         Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
         Text = text, Font = F_REG, TextSize = 13, TextColor3 = Colors.TextDim, TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = NextOrder(),
+        LineHeight = 1.25,
     }, Scroll)
-    New("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4), PaddingBottom = UDim.new(0, 2) }, l)
+    New("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingBottom = UDim.new(0, 4) }, l)
     return l
 end
 
 function Z.Stat(name, value)
-    local card = Card(42)
-    Label(card, name, 13, Colors.TextDim, F_MED, UDim2.fromOffset(16, 0), UDim2.new(0.5, -16, 1, 0))
-    local v = Label(card, tostring(value), 14, Colors.Text, F_BOLD, UDim2.fromScale(0.5, 0), UDim2.new(0.5, -16, 1, 0), Enum.TextXAlignment.Right)
+    local card = Card(46)
+    Label(card, name, 13, Colors.TextDim, F_MED, UDim2.fromOffset(18, 0), UDim2.new(0.5, -18, 1, 0))
+    local v = Label(card, tostring(value), 14, Colors.Text, F_BOLD, UDim2.fromScale(0.5, 0), UDim2.new(0.5, -18, 1, 0), Enum.TextXAlignment.Right)
     return {
         Frame = card,
         Set = function(text, color)
@@ -349,28 +363,28 @@ function Z.Stat(name, value)
 end
 
 function Z.Toggle(name, default, callback, desc)
-    local card, st = Card(desc and 62 or 50)
+    local card, st = Card(desc and 66 or 54)
     local state = not not default
-    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(16, desc and 10 or 0), UDim2.new(1, -96, 0, desc and 20 or 50))
-    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(16, 33), UDim2.new(1, -96, 0, 20)) end
+    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, desc and 11 or 0), UDim2.new(1, -104, 0, desc and 20 or 54))
+    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(18, 35), UDim2.new(1, -104, 0, 20)) end
 
     local track = New("Frame", {
-        Size = UDim2.fromOffset(46, 24), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -16, 0.5, 0),
+        Size = UDim2.fromOffset(48, 26), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -18, 0.5, 0),
         BackgroundColor3 = Colors.CardHover, BorderSizePixel = 0,
     }, card)
-    Corner(track, 12)
+    Corner(track, 13)
     local knob = New("Frame", {
-        Size = UDim2.fromOffset(18, 18), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0),
+        Size = UDim2.fromOffset(20, 20), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0),
         BackgroundColor3 = Colors.Text, BorderSizePixel = 0,
     }, track)
-    Corner(knob, 9)
+    Corner(knob, 10)
 
     local function render(v, animate)
         if not card.Parent then return end
         local t = animate and 0.15 or 0
         Tween(track, t, { BackgroundColor3 = v and Colors.Accent or Colors.CardHover })
         Tween(knob, t, { Position = UDim2.new(0, v and 25 or 3, 0.5, 0) }, Enum.EasingStyle.Back)
-        Tween(st, t, { Color = v and Colors.Accent or Colors.Border, Transparency = v and 0.3 or 0.6 })
+        Tween(st, t, { Color = v and Colors.Accent or Colors.BorderSoft, Transparency = v and 0.3 or 0.35 })
     end
     render(state, false)
 
@@ -400,7 +414,7 @@ function Z.Slider(name, min, max, default, callback, opts)
     opts = opts or {}
     local step, suffix = opts.step or 1, opts.suffix or ""
     local range = math.max(1e-6, max - min)
-    local card = Card(68)
+    local card = Card(74)
 
     local function snap(v)
         v = min + math.floor((v - min) / step + 0.5) * step
@@ -412,21 +426,22 @@ function Z.Slider(name, min, max, default, callback, opts)
     end
     local value = snap(default or min)
 
-    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(16, 10), UDim2.new(1, -140, 0, 20))
-    local valLbl = Label(card, "", 14, Colors.Accent, F_BOLD, UDim2.new(1, -126, 0, 10), UDim2.fromOffset(110, 20), Enum.TextXAlignment.Right)
+    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, 12), UDim2.new(1, -148, 0, 20))
+    local valLbl = Label(card, "", 14, Colors.Accent, F_BOLD, UDim2.new(1, -134, 0, 12), UDim2.fromOffset(116, 20), Enum.TextXAlignment.Right)
 
     local track = New("Frame", {
-        Size = UDim2.new(1, -32, 0, 8), Position = UDim2.fromOffset(16, 46), BackgroundColor3 = Colors.CardHover, BorderSizePixel = 0,
+        Size = UDim2.new(1, -36, 0, 8), Position = UDim2.fromOffset(18, 50),
+        BackgroundColor3 = Colors.CardHover, BorderSizePixel = 0,
     }, card)
     Corner(track, 4)
     local fill = New("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0 }, track)
     Corner(fill, 4)
     New("UIGradient", { Color = ColorSequence.new(Colors.AccentDark, Colors.Accent) }, fill)
     local knob = New("Frame", {
-        Size = UDim2.fromOffset(18, 18), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5),
+        Size = UDim2.fromOffset(20, 20), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5),
         BackgroundColor3 = Colors.Text, BorderSizePixel = 0, ZIndex = 2,
     }, track)
-    Corner(knob, 9)
+    Corner(knob, 10)
     Stroke(knob, Colors.Accent, 2)
 
     local function render()
@@ -448,7 +463,8 @@ function Z.Slider(name, min, max, default, callback, opts)
         end
     end
     local hit = New("TextButton", {
-        Size = UDim2.new(1, -20, 0, 32), Position = UDim2.fromOffset(10, 34), BackgroundTransparency = 1, Text = "", AutoButtonColor = false,
+        Size = UDim2.new(1, -20, 0, 34), Position = UDim2.fromOffset(10, 38),
+        BackgroundTransparency = 1, Text = "", AutoButtonColor = false,
     }, card)
     hit.InputBegan:Connect(function(i)
         if IsPointer(i) then
@@ -484,11 +500,11 @@ end
 function Z.Button(name, color, callback)
     color = color or Colors.Accent
     local b = New("TextButton", {
-        Size = UDim2.new(1, 0, 0, 42), BackgroundColor3 = color, Text = name, Font = F_BOLD, TextSize = 14,
+        Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = color, Text = name, Font = F_BOLD, TextSize = 14,
         TextColor3 = Luma(color) > 0.62 and Color3.fromRGB(15, 16, 24) or Colors.Text,
         BorderSizePixel = 0, AutoButtonColor = false, LayoutOrder = NextOrder(),
     }, Scroll)
-    Corner(b, 10)
+    Corner(b, 12)
     b.MouseEnter:Connect(function() Tween(b, 0.12, { BackgroundColor3 = color:Lerp(Color3.new(1, 1, 1), 0.15) }) end)
     b.MouseLeave:Connect(function() Tween(b, 0.12, { BackgroundColor3 = color }) end)
     b.MouseButton1Down:Connect(function() Tween(b, 0.08, { BackgroundColor3 = color:Lerp(Color3.new(0, 0, 0), 0.2) }) end)
@@ -499,17 +515,17 @@ end
 
 function Z.Dropdown(name, options, default, callback, desc)
     options = options or {}
-    local labelH = desc and 29 or 0
-    local baseH = 56 + labelH
+    local labelH = desc and 31 or 0
+    local baseH = 60 + labelH
     local card = Card(baseH)
     card.ClipsDescendants = true
 
-    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(16, 10), UDim2.new(1, -32, 0, 20))
-    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(16, 29), UDim2.new(1, -32, 0, 16)) end
+    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, 11), UDim2.new(1, -36, 0, 20))
+    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(18, 32), UDim2.new(1, -36, 0, 16)) end
 
-    local selY = desc and 46 or 30
+    local selY = desc and 50 or 34
     local selectBtn = New("TextButton", {
-        Size = UDim2.new(1, -32, 0, 32), Position = UDim2.fromOffset(16, selY),
+        Size = UDim2.new(1, -36, 0, 32), Position = UDim2.fromOffset(18, selY),
         BackgroundColor3 = Colors.CardHover, Text = "", AutoButtonColor = false, BorderSizePixel = 0,
     }, card)
     Corner(selectBtn, 8)
@@ -519,7 +535,7 @@ function Z.Dropdown(name, options, default, callback, desc)
     local arrow = Label(selectBtn, "▾", 14, Colors.TextDim, F_BOLD, UDim2.new(1, -26, 0, 0), UDim2.fromOffset(20, 32), Enum.TextXAlignment.Center)
 
     local listHolder = New("ScrollingFrame", {
-        Size = UDim2.new(1, -32, 0, 0), Position = UDim2.fromOffset(16, selY + 38),
+        Size = UDim2.new(1, -36, 0, 0), Position = UDim2.fromOffset(18, selY + 40),
         BackgroundColor3 = Colors.Bg, BorderSizePixel = 0, ScrollBarThickness = 3,
         ScrollBarImageColor3 = Colors.Accent, CanvasSize = UDim2.new(),
         AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
@@ -542,7 +558,7 @@ function Z.Dropdown(name, options, default, callback, desc)
         table.clear(itemButtons)
         for i, opt in ipairs(options) do
             local item = New("TextButton", {
-                Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = Colors.Accent, BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Colors.Accent, BackgroundTransparency = 1,
                 Text = "  " .. tostring(opt), Font = F_MED, TextSize = 13, TextColor3 = Colors.TextDim,
                 TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = i,
             }, listHolder)
@@ -563,8 +579,8 @@ function Z.Dropdown(name, options, default, callback, desc)
         if isOpen or #options == 0 then return end
         isOpen = true
         listHolder.Visible = true
-        local h = math.min(150, #options * 28 + 4)
-        listHolder.Size = UDim2.new(1, -32, 0, h)
+        local h = math.min(160, #options * 30 + 4)
+        listHolder.Size = UDim2.new(1, -36, 0, h)
         Tween(card, 0.15, { Size = UDim2.new(1, 0, 0, baseH + h + 8) })
         Tween(arrow, 0.15, { Rotation = 180 })
     end
@@ -588,6 +604,107 @@ function Z.Dropdown(name, options, default, callback, desc)
         valLbl.Text = v and tostring(v) or "Selecionar..."
         valLbl.TextColor3 = v and Colors.Text or Colors.TextMuted
         if not silent then Safe(callback, v) end
+    end
+    return obj
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- PLAYER DROPDOWN (nativo da base — lista jogadores atualizada sozinha)
+-- ═══════════════════════════════════════════════════════════════════════
+function Z.PlayerDropdown(name, callback, desc)
+    local baseH = desc and 66 or 54
+    local card = Card(baseH)
+    card.ClipsDescendants = true
+
+    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, desc and 11 or 0), UDim2.new(1, -36, 0, desc and 20 or 54))
+    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(18, 35), UDim2.new(1, -36, 0, 20)) end
+
+    local selY = desc and 50 or 16
+    local selectBtn = New("TextButton", {
+        Size = UDim2.new(1, -36, 0, 32), Position = UDim2.fromOffset(18, selY),
+        BackgroundColor3 = Colors.CardHover, Text = "", AutoButtonColor = false, BorderSizePixel = 0,
+    }, card)
+    Corner(selectBtn, 8)
+    Stroke(selectBtn, Colors.Border, 1, 0.5)
+    local valLbl = Label(selectBtn, "Selecionar jogador...", 13, Colors.TextMuted, F_MED, UDim2.fromOffset(12, 0), UDim2.new(1, -34, 1, 0))
+    local arrow = Label(selectBtn, "▾", 14, Colors.TextDim, F_BOLD, UDim2.new(1, -26, 0, 0), UDim2.fromOffset(20, 32), Enum.TextXAlignment.Center)
+
+    local listHolder = New("ScrollingFrame", {
+        Size = UDim2.new(1, -36, 0, 0), Position = UDim2.fromOffset(18, selY + 40),
+        BackgroundColor3 = Colors.Bg, BorderSizePixel = 0, ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Colors.Accent, CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
+    }, card)
+    Corner(listHolder, 8)
+    New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, listHolder)
+
+    local selected, isOpen, itemButtons = nil, false, {}
+
+    local function CloseList()
+        if not isOpen then return end
+        isOpen = false
+        Tween(card, 0.15, { Size = UDim2.new(1, 0, 0, baseH) })
+        Tween(arrow, 0.15, { Rotation = 0 })
+        task.delay(0.15, function() if not isOpen and listHolder.Parent then listHolder.Visible = false end end)
+    end
+
+    local function RenderItems()
+        for _, b in ipairs(itemButtons) do b:Destroy() end
+        table.clear(itemButtons)
+        local players = Players:GetPlayers()
+        for i, p in ipairs(players) do
+            if p ~= Player then
+                local item = New("TextButton", {
+                    Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Colors.Accent, BackgroundTransparency = 1,
+                    Text = "  " .. p.Name, Font = F_MED, TextSize = 13, TextColor3 = Colors.TextDim,
+                    TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = i,
+                }, listHolder)
+                item.MouseEnter:Connect(function() Tween(item, 0.1, { BackgroundTransparency = 0.45 }) end)
+                item.MouseLeave:Connect(function() Tween(item, 0.1, { BackgroundTransparency = 1 }) end)
+                item.MouseButton1Click:Connect(function()
+                    selected = p
+                    valLbl.Text, valLbl.TextColor3 = p.Name, Colors.Text
+                    CloseList()
+                    Safe(callback, p)
+                end)
+                table.insert(itemButtons, item)
+            end
+        end
+    end
+
+    local function OpenList()
+        if isOpen then return end
+        RenderItems()
+        if #itemButtons == 0 then
+            Z.Notify("Players", "Nenhum outro jogador no servidor.", Colors.Warning, 2)
+            return
+        end
+        isOpen = true
+        listHolder.Visible = true
+        local h = math.min(160, #itemButtons * 30 + 4)
+        listHolder.Size = UDim2.new(1, -36, 0, h)
+        Tween(card, 0.15, { Size = UDim2.new(1, 0, 0, baseH + h + 8) })
+        Tween(arrow, 0.15, { Rotation = 180 })
+    end
+
+    selectBtn.MouseButton1Click:Connect(function() if isOpen then CloseList() else OpenList() end end)
+
+    Z.PageTrack(Players.PlayerAdded:Connect(function() if isOpen then RenderItems() end end))
+    Z.PageTrack(Players.PlayerRemoving:Connect(function(p)
+        if selected == p then
+            selected = nil
+            valLbl.Text, valLbl.TextColor3 = "Selecionar jogador...", Colors.TextMuted
+        end
+        if isOpen then RenderItems() end
+    end))
+
+    local obj = { Frame = card }
+    function obj.Get() return selected end
+    function obj.Set(p, silent)
+        selected = p
+        valLbl.Text = p and p.Name or "Selecionar jogador..."
+        valLbl.TextColor3 = p and Colors.Text or Colors.TextMuted
+        if not silent then Safe(callback, p) end
     end
     return obj
 end
@@ -632,14 +749,14 @@ MakeDraggable(Header, Main, nil, ClampMain)
 MakeDraggable(LogoCard, Main, nil, ClampMain)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- BOLHA (janela minimizada) + MOSTRAR / ESCONDER
+-- BOLHA + MOSTRAR / ESCONDER
 -- ═══════════════════════════════════════════════════════════════════════
 local Bubble = New("TextButton", {
-    Size = UDim2.fromOffset(56, 56), Position = UDim2.new(1, -90, 1, -130), Text = "Z",
+    Size = UDim2.fromOffset(58, 58), Position = UDim2.new(1, -94, 1, -136), Text = "Z",
     Font = F_BLACK, TextSize = 24, TextColor3 = Colors.Text, BackgroundColor3 = Colors.Accent,
     AutoButtonColor = false, BorderSizePixel = 0, Visible = false, ZIndex = 50,
 }, Hub)
-Corner(Bubble, 28)
+Corner(Bubble, 29)
 Stroke(Bubble, Colors.AccentLight, 2, 0.2)
 New("UIGradient", { Color = ColorSequence.new(Colors.Accent, Colors.Purple), Rotation = 45 }, Bubble)
 
@@ -672,17 +789,17 @@ MakeDraggable(Bubble, Bubble, function() Z.SetVisible(true) end)
 -- Botões do cabeçalho
 local function HeaderBtn(text, color, xOff, cb)
     local b = New("TextButton", {
-        Size = UDim2.fromOffset(32, 32), Position = UDim2.new(1, xOff, 0, 14), BackgroundColor3 = color, Text = text,
-        Font = F_BOLD, TextSize = 15, TextColor3 = Colors.Text, AutoButtonColor = false, BorderSizePixel = 0,
+        Size = UDim2.fromOffset(34, 34), Position = UDim2.new(1, xOff, 0, 15), BackgroundColor3 = color, Text = text,
+        Font = F_BOLD, TextSize = 16, TextColor3 = Colors.Text, AutoButtonColor = false, BorderSizePixel = 0,
     }, Header)
-    Corner(b, 8)
+    Corner(b, 9)
     b.MouseEnter:Connect(function() Tween(b, 0.12, { BackgroundColor3 = color:Lerp(Color3.new(1, 1, 1), 0.2) }) end)
     b.MouseLeave:Connect(function() Tween(b, 0.12, { BackgroundColor3 = color }) end)
     b.MouseButton1Click:Connect(function() Safe(cb) end)
     return b
 end
-HeaderBtn("–", Colors.CardHover, -84, function() Z.SetVisible(false) end)
-HeaderBtn("✕", Colors.Danger, -46, function() Z.Destroy() end)
+HeaderBtn("–", Colors.CardHover, -90, function() Z.SetVisible(false) end)
+HeaderBtn("✕", Colors.Danger, -50, function() Z.Destroy() end)
 
 -- Atalhos de teclado
 Z.Track(UIS.InputBegan:Connect(function(input, gpe)
@@ -710,17 +827,17 @@ function Z.AddTab(name, icon, callback)
     if existing then existing.Callback = callback return existing end
 
     local btn = New("TextButton", {
-        Size = UDim2.new(1, 0, 0, 42), BackgroundColor3 = Colors.Card, BackgroundTransparency = 1, BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = Colors.Card, BackgroundTransparency = 1, BorderSizePixel = 0,
         AutoButtonColor = false, Text = "", LayoutOrder = #Z.TabOrder + 1,
     }, TabsScroll)
-    Corner(btn, 10)
+    Corner(btn, 11)
     local bar = New("Frame", {
-        Size = UDim2.fromOffset(4, 20), Position = UDim2.new(0, 0, 0.5, -10), BackgroundColor3 = Colors.Accent,
+        Size = UDim2.fromOffset(4, 22), Position = UDim2.new(0, 0, 0.5, -11), BackgroundColor3 = Colors.Accent,
         BackgroundTransparency = 1, BorderSizePixel = 0,
     }, btn)
     Corner(bar, 2)
-    local ic = Label(btn, icon, 18, Colors.TextDim, F_REG, UDim2.fromOffset(14, 0), UDim2.fromOffset(28, 42), Enum.TextXAlignment.Center)
-    local nm = Label(btn, name, 14, Colors.TextDim, F_BOLD, UDim2.fromOffset(50, 0), UDim2.new(1, -56, 1, 0))
+    local ic = Label(btn, icon, 18, Colors.TextDim, F_REG, UDim2.fromOffset(16, 0), UDim2.fromOffset(30, 44), Enum.TextXAlignment.Center)
+    local nm = Label(btn, name, 14, Colors.TextDim, F_BOLD, UDim2.fromOffset(54, 0), UDim2.new(1, -60, 1, 0))
 
     local tab = { Name = name, Icon = ic, Label = nm, Button = btn, Bar = bar, Callback = callback, IconText = icon }
     Z.Tabs[name] = tab
@@ -780,7 +897,7 @@ function Z.Destroy()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- FUNÇÕES DO PLAYER (rodam sempre, independente da aba aberta)
+-- FUNÇÕES DO PLAYER
 -- ═══════════════════════════════════════════════════════════════════════
 local function Def(k, v) if S[k] == nil then S[k] = v end end
 Def("speedOn", false) Def("walkSpeed", 16)
@@ -824,18 +941,18 @@ local function FmtTime(sec)
 end
 
 local function LoadHome()
-    local hero = Card(96)
+    local hero = Card(102)
     local stripe = New("Frame", {
-        Size = UDim2.new(0, 4, 1, -24), Position = UDim2.fromOffset(10, 12), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0,
+        Size = UDim2.new(0, 4, 1, -28), Position = UDim2.fromOffset(12, 14), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0,
     }, hero)
     Corner(stripe, 2)
     New("UIGradient", { Color = ColorSequence.new(Colors.Accent, Colors.Purple), Rotation = 90 }, stripe)
-    Label(hero, "Bem-vindo, " .. Player.DisplayName, 20, Colors.Text, F_BOLD, UDim2.fromOffset(26, 12), UDim2.new(1, -40, 0, 28))
+    Label(hero, "Bem-vindo, " .. Player.DisplayName, 20, Colors.Text, F_BOLD, UDim2.fromOffset(28, 14), UDim2.new(1, -44, 0, 28))
     New("TextLabel", {
         BackgroundTransparency = 1, Font = F_REG, TextSize = 13, TextColor3 = Colors.TextDim, TextWrapped = true,
-        TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+        TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LineHeight = 1.25,
         Text = "Escolha uma aba ao lado para começar. Minimize com – para virar uma bolha arrastável.",
-        Position = UDim2.fromOffset(26, 44), Size = UDim2.new(1, -40, 0, 40),
+        Position = UDim2.fromOffset(28, 46), Size = UDim2.new(1, -44, 0, 44),
     }, hero)
 
     Z.Sep("📊  INFORMAÇÕES")
