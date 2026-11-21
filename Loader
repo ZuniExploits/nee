@@ -1,11 +1,13 @@
 -- ╔══════════════════════════════════════════════════════════════╗
--- ║  N3ON HUB - Loader v4 (Auto-Reload)                        ║
--- ║  Remove script antigo antes de executar o novo             ║
+-- ║  N3ON HUB - Loader v4.1 (Auto-Reload + IDs corretos)       ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
 local Player     = game.Players.LocalPlayer
 local PlayerGui  = Player:WaitForChild("PlayerGui")
-local RunService = game:GetService("RunService")
+
+-- ⚠️ IDs CORRIGIDOS BASEADOS NO SEU PRINT
+local ID_ETW  = 5677613211
+local ID_KING = 4520749081 -- (Mantenha o do King, se estiver errado, você verá no print)
 
 local BASE_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/Zuno_hub_base.lua"
 local ETW_URL  = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/ETW.Lua"
@@ -14,7 +16,6 @@ local KING_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/h
 -- ═══════════════════════════════════════════════════════════════
 -- HELPERS DE LIMPEZA
 -- ═══════════════════════════════════════════════════════════════
-
 local function DisconnectAll(tbl)
     if type(tbl) ~= "table" then return end
     for _, conn in pairs(tbl) do
@@ -24,13 +25,8 @@ local function DisconnectAll(tbl)
     end
 end
 
--- Remove TODAS as GUIs que o hub cria
 local function DestroyOldGUIs()
-    local toRemove = {
-        "N3onHub",        -- ScreenGui principal
-        "FlyControls",    -- Fly mobile buttons
-        "ETW_StatusBar",  -- (não é ScreenGui, é filho do MainContainer)
-    }
+    local toRemove = {"N3onHub", "FlyControls"}
     for _, name in ipairs(toRemove) do
         local gui = PlayerGui:FindFirstChild(name)
         if gui then
@@ -39,7 +35,6 @@ local function DestroyOldGUIs()
         end
     end
 
-    -- Remove também qualquer ScreenGui que tenha o nome do hub antigo
     for _, gui in ipairs(PlayerGui:GetChildren()) do
         if gui:IsA("ScreenGui") then
             if gui.Name:lower():find("n3on") or gui.Name:lower():find("etw") then
@@ -48,26 +43,18 @@ local function DestroyOldGUIs()
             end
         end
     end
-
-    -- Remove status bar que fica dentro do MainContainer (caso não removida)
-    -- (já foi removida junto com N3onHub, mas garantia extra)
 end
 
--- Mata todos os loops antigos
 local function KillOldHub()
     if _G.N3onHub then
         print("[Loader] Desativando hub antigo...")
-
-        -- 1) Sinaliza que morreu (loops checam isso)
         pcall(function() _G.N3onHub.Alive = false end)
-
-        -- 2) Se a base guardou referências de conexões, desconecta
+        
         if type(_G.N3onHub._connections) == "table" then
             DisconnectAll(_G.N3onHub._connections)
             _G.N3onHub._connections = nil
         end
 
-        -- 3) Desliga flags que controlam loops (módulo ETW)
         local S = _G.N3onHub.SavedStates
         if type(S) == "table" then
             S.grabActive      = false
@@ -84,7 +71,6 @@ local function KillOldHub()
             S.fly             = false
         end
 
-        -- 4) Remove a tabela global
         _G.N3onHub = nil
     else
         print("[Loader] Nenhum hub antigo em _G.")
@@ -94,15 +80,11 @@ end
 -- ═══════════════════════════════════════════════════════════════
 -- SAFE LOAD
 -- ═══════════════════════════════════════════════════════════════
-
 local function SafeLoad(url, label)
     label = label or url
     print("[Loader] Baixando: " .. label)
 
-    local ok, src = pcall(function()
-        return game:HttpGet(url)
-    end)
-
+    local ok, src = pcall(function() return game:HttpGet(url) end)
     if not ok or type(src) ~= "string" or #src < 10 then
         warn("[Loader] Falha download: " .. label)
         return false
@@ -119,37 +101,31 @@ local function SafeLoad(url, label)
         warn("[Loader] exec erro (" .. label .. "): " .. tostring(err2))
         return false
     end
-
     return true
 end
 
 -- ═══════════════════════════════════════════════════════════════
 -- 1) LIMPA O SCRIPT ANTIGO
 -- ═══════════════════════════════════════════════════════════════
-
 print("╔══════════════════════════════════════════╗")
-print("║  N3ON LOADER v4 - Re-executando...       ║")
+print("║  N3ON LOADER v4.1 - Re-executando...     ║")
 print("╚══════════════════════════════════════════╝")
 
 KillOldHub()
 DestroyOldGUIs()
-
--- Pequena pausa para o Roblox processar os Destroy()s
-task.wait(0.25)
+task.wait(0.25) -- Espera o Roblox limpar a memória
 
 -- ═══════════════════════════════════════════════════════════════
 -- 2) CARREGA A BASE NOVA
 -- ═══════════════════════════════════════════════════════════════
-
 if not SafeLoad(BASE_URL, "Base") then
     warn("[Loader] Abortando: base falhou.")
     return
 end
 
 -- ═══════════════════════════════════════════════════════════════
--- 3) ESPERA A BASE FICAR READY (max 15s)
+-- 3) ESPERA A BASE FICAR READY
 -- ═══════════════════════════════════════════════════════════════
-
 local waited = 0
 while not (_G.N3onHub and _G.N3onHub.Ready) and waited < 150 do
     task.wait(0.1)
@@ -160,20 +136,18 @@ if not (_G.N3onHub and _G.N3onHub.Ready) then
     warn("[Loader] Base não ficou Ready em 15s. Abortando.")
     return
 end
-
 print("[Loader] Base pronta. Carregando módulo do jogo...")
 
 -- ═══════════════════════════════════════════════════════════════
 -- 4) DETECTA O JOGO E CARREGA O MÓDULO
 -- ═══════════════════════════════════════════════════════════════
-
 local id = game.GameId
 print("[Loader] GameId detectado:", id)
 
-if id == 4520749081 then
-    SafeLoad(KING_URL, "King")
-elseif id == 16480898254 then
+if id == ID_ETW then
     SafeLoad(ETW_URL, "ETW")
+elseif id == ID_KING then
+    SafeLoad(KING_URL, "King")
 else
     print("[Loader] Jogo não suportado (GameId: " .. id .. ")")
 end
