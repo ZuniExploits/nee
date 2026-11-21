@@ -1,155 +1,96 @@
--- ╔══════════════════════════════════════════════════════════════╗
--- ║  N3ON HUB - Loader v4.1 (Auto-Reload + IDs corretos)       ║
--- ╚══════════════════════════════════════════════════════════════╝
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║  ZUNI HUB - LOADER v3.0                                             ║
+-- ║  Detecta jogo, limpa, carrega base + módulo                         ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
 
-local Player     = game.Players.LocalPlayer
-local PlayerGui  = Player:WaitForChild("PlayerGui")
-
--- ⚠️ IDs CORRIGIDOS BASEADOS NO SEU PRINT
-local ID_ETW  = 5677613211
-local ID_KING = 4520749081 -- (Mantenha o do King, se estiver errado, você verá no print)
-
-local BASE_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/Zuno_hub_base.lua"
+local BASE_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/Zuni_hub_base.lua"
 local ETW_URL  = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/ETW.Lua"
 local KING_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/King.Lua"
 
--- ═══════════════════════════════════════════════════════════════
--- HELPERS DE LIMPEZA
--- ═══════════════════════════════════════════════════════════════
-local function DisconnectAll(tbl)
-    if type(tbl) ~= "table" then return end
-    for _, conn in pairs(tbl) do
-        pcall(function()
-            if typeof(conn) == "RBXScriptConnection" then conn:Disconnect() end
-        end)
-    end
+local ID_ETW  = 5677613211
+local ID_KING = 4520749081
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- LIMPEZA
+-- ═══════════════════════════════════════════════════════════════════════
+if _G.ZuniHub then
+    pcall(function() _G.ZuniHub.Alive = false end)
+    pcall(function() _G.ZuniHub.DisconnectAll() end)
+    _G.ZuniHub = nil
+end
+if _G.N3onHub then
+    pcall(function() _G.N3onHub.Alive = false end)
+    _G.N3onHub = nil
 end
 
-local function DestroyOldGUIs()
-    local toRemove = {"N3onHub", "FlyControls"}
-    for _, name in ipairs(toRemove) do
-        local gui = PlayerGui:FindFirstChild(name)
-        if gui then
-            pcall(function() gui:Destroy() end)
-            print("[Loader] GUI removida: " .. name)
-        end
-    end
-
-    for _, gui in ipairs(PlayerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") then
-            if gui.Name:lower():find("n3on") or gui.Name:lower():find("etw") then
-                pcall(function() gui:Destroy() end)
-                print("[Loader] GUI extra removida: " .. gui.Name)
-            end
-        end
-    end
+local PlayerGui = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+for _, name in ipairs({"ZuniHub", "ZuniNotify", "N3onHub", "FlyControls"}) do
+    local g = PlayerGui:FindFirstChild(name)
+    if g then pcall(function() g:Destroy() end) end
 end
+task.wait(0.3)
 
-local function KillOldHub()
-    if _G.N3onHub then
-        print("[Loader] Desativando hub antigo...")
-        pcall(function() _G.N3onHub.Alive = false end)
-        
-        if type(_G.N3onHub._connections) == "table" then
-            DisconnectAll(_G.N3onHub._connections)
-            _G.N3onHub._connections = nil
-        end
-
-        local S = _G.N3onHub.SavedStates
-        if type(S) == "table" then
-            S.grabActive      = false
-            S.eatActive       = false
-            S.throwActive     = false
-            S.sellActive      = false
-            S.smartSellActive = false
-            S.walkActive      = false
-            S.teleActive      = false
-            S.antiAfk         = false
-            S.antiKnock       = false
-            S.noclip          = false
-            S.infjump         = false
-            S.fly             = false
-        end
-
-        _G.N3onHub = nil
-    else
-        print("[Loader] Nenhum hub antigo em _G.")
-    end
-end
-
--- ═══════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════
 -- SAFE LOAD
--- ═══════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════
 local function SafeLoad(url, label)
-    label = label or url
     print("[Loader] Baixando: " .. label)
-
     local ok, src = pcall(function() return game:HttpGet(url) end)
     if not ok or type(src) ~= "string" or #src < 10 then
         warn("[Loader] Falha download: " .. label)
         return false
     end
-
-    local fn, err = loadstring(src, "N3on_" .. label)
+    local fn, err = loadstring(src, "Zuni_" .. label)
     if not fn then
-        warn("[Loader] loadstring erro (" .. label .. "): " .. tostring(err))
+        warn("[Loader] loadstring erro: " .. tostring(err))
         return false
     end
-
     local ok2, err2 = pcall(fn)
     if not ok2 then
-        warn("[Loader] exec erro (" .. label .. "): " .. tostring(err2))
+        warn("[Loader] exec erro: " .. tostring(err2))
         return false
     end
     return true
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 1) LIMPA O SCRIPT ANTIGO
--- ═══════════════════════════════════════════════════════════════
-print("╔══════════════════════════════════════════╗")
-print("║  N3ON LOADER v4.1 - Re-executando...     ║")
-print("╚══════════════════════════════════════════╝")
+-- ═══════════════════════════════════════════════════════════════════════
+-- CARREGA BASE
+-- ═══════════════════════════════════════════════════════════════════════
+print("╔═══════════════════════════════════════════════════════╗")
+print("║  ⚡ ZUNI HUB LOADER v3.0                              ║")
+print("╚═══════════════════════════════════════════════════════╝")
 
-KillOldHub()
-DestroyOldGUIs()
-task.wait(0.25) -- Espera o Roblox limpar a memória
-
--- ═══════════════════════════════════════════════════════════════
--- 2) CARREGA A BASE NOVA
--- ═══════════════════════════════════════════════════════════════
 if not SafeLoad(BASE_URL, "Base") then
-    warn("[Loader] Abortando: base falhou.")
+    warn("[Loader] Abortando.")
     return
 end
 
--- ═══════════════════════════════════════════════════════════════
--- 3) ESPERA A BASE FICAR READY
--- ═══════════════════════════════════════════════════════════════
+-- Aguarda Ready
 local waited = 0
-while not (_G.N3onHub and _G.N3onHub.Ready) and waited < 150 do
+while not (_G.ZuniHub and _G.ZuniHub.Ready) and waited < 100 do
     task.wait(0.1)
-    waited += 1
+    waited = waited + 1
 end
 
-if not (_G.N3onHub and _G.N3onHub.Ready) then
-    warn("[Loader] Base não ficou Ready em 15s. Abortando.")
+if not (_G.ZuniHub and _G.ZuniHub.Ready) then
+    warn("[Loader] Base não ficou pronta em 10s.")
     return
 end
-print("[Loader] Base pronta. Carregando módulo do jogo...")
 
--- ═══════════════════════════════════════════════════════════════
--- 4) DETECTA O JOGO E CARREGA O MÓDULO
--- ═══════════════════════════════════════════════════════════════
+print("[Loader] Base pronta. Detectando jogo...")
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- DETECTA E CARREGA MÓDULO
+-- ═══════════════════════════════════════════════════════════════════════
 local id = game.GameId
-print("[Loader] GameId detectado:", id)
+print("[Loader] GameId:", id)
 
 if id == ID_ETW then
     SafeLoad(ETW_URL, "ETW")
 elseif id == ID_KING then
     SafeLoad(KING_URL, "King")
 else
-    print("[Loader] Jogo não suportado (GameId: " .. id .. ")")
+    print("[Loader] Jogo não suportado (GameId: " .. tostring(id) .. ")")
 end
 
-print("[Loader] ✓ Tudo carregado.")
+print("[Loader] ✓ Concluído.")
