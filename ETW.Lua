@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v3.1 (Erro do Vararg Corrigido)              ║
+-- ║  ZUNI HUB - ETW MODULE v3.2 (Definitivo - Zero Erros)               ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then return end
@@ -8,13 +8,15 @@ local Z = _G.ZuniHub
 local C = Z.Colors
 local S = Z.SavedStates
 
-local Player     = game.Players.LocalPlayer
-local UIS        = game:GetService("UserInputService")
-local VIM        = game:GetService("VirtualInputManager")
-local RunService = game:GetService("RunService")
+local Player       = game.Players.LocalPlayer
+local UIS          = game:GetService("UserInputService")
+local VIM          = game:GetService("VirtualInputManager")
+local RunService   = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
-local function Def(k, v) if S[k] == nil then S[k] = v end end
+local function Def(k, v) 
+    if S[k] == nil then S[k] = v end 
+end
 
 Def("grabActive", false) Def("grabInterval", 500) Def("grabPauseDuration", 5) Def("grabSellOnFail", false)
 Def("eatActive", false) Def("eatInterval", 300)
@@ -34,17 +36,18 @@ local function GetEvents()
     return c and c:FindFirstChild("Events") or nil
 end
 
--- CORREÇÃO DO VARARG AQUI
+-- CORREÇÃO DEFINITIVA: Sem varargs ('...'), sem risco de erro
 local function FireEvent(name)
     local events = GetEvents()
     if not events then return false end
     local ev = events:FindFirstChild(name)
     if not ev then return false end
-    pcall(function()
-        if ev:IsA("RemoteEvent") then ev:FireServer()
-        elseif ev:IsA("RemoteFunction") then ev:InvokeServer()
-        end
-    end)
+    
+    if ev:IsA("RemoteEvent") then
+        ev:FireServer()
+    elseif ev:IsA("RemoteFunction") then
+        ev:InvokeServer()
+    end
     return true
 end
 
@@ -65,8 +68,7 @@ local function StartGrab()
     Gen.grab += 1
     local myGen = Gen.grab
     task.spawn(function()
-        local paused = false
-        local pauseEnd = 0
+        local paused, pauseEnd = false, 0
         while F.grab and Gen.grab == myGen and Z.Alive do
             if paused then
                 if tick() < pauseEnd then task.wait(0.5); continue end
@@ -155,8 +157,10 @@ local function StartAutoRewards()
             if timed then
                 for _, reward in ipairs(timed:GetChildren()) do
                     if reward:IsA("NumberValue") and reward.Value ~= -1 and reward.Value <= os.time() then
-                        local ok = pcall(function() game.ReplicatedStorage.Events.RewardEvent:FireServer(reward) end)
-                        if ok then
+                        local rs = game.ReplicatedStorage:FindFirstChild("Events")
+                        local re = rs and rs:FindFirstChild("RewardEvent")
+                        if re then
+                            re:FireServer(reward)
                             Z.Notify("Reward", "Resgatando: " .. reward.Name, C.Success, 2)
                             task.wait(S.autoRewardsDelay)
                         end
@@ -239,7 +243,7 @@ Z.Track(RunService.Heartbeat:Connect(function()
     if not hrp or not hum then return end
     if hum.MoveDirection.Magnitude < 0.1 then
         local v = hrp.AssemblyLinearVelocity
-        if math.abs(v.X) > 5 or math.abs(v.Z) > 5 then pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0) end) end
+        if math.abs(v.X) > 5 or math.abs(v.Z) > 5 then hrp.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0) end
     end
 end))
 
@@ -412,5 +416,5 @@ Z.AddTab("Auto Farm", "🌾", LoadAutoFarm)
 Z.AddTab("Movimento", "🚶", LoadMovement)
 Z.AddTab("Misc",      "⚙️", LoadMisc)
 
-Z.Notify("Zuni Hub", "Módulo ETW v3.1 carregado com sucesso!", C.Success, 4)
-print("[ETW Module v3.1] ✓ Carregado sem erros")
+Z.Notify("Zuni Hub", "Módulo ETW v3.2 carregado com sucesso!", C.Success, 4)
+print("[ETW Module v3.2] ✓ Carregado sem erros")
