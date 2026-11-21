@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ALL IN ONE (Base + ETW Module + Loader)                ║
--- ║  Sem erros. Sem dependências externas. Tudo em um só lugar.        ║
+-- ║  ZUNI HUB - ALL IN ONE (Farm Edition)                              ║
+-- ║  Abas únicas, sem duplicação. Foco total em Farm.                  ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 local Player       = game.Players.LocalPlayer
@@ -11,14 +11,8 @@ local RunService   = game:GetService("RunService")
 local HttpService  = game:GetService("HttpService")
 local VIM          = game:GetService("VirtualInputManager")
 
--- =====================================================================
 -- 1. LIMPEZA E CONFIGURAÇÃO INICIAL
--- =====================================================================
-if _G.ZuniHub then
-    pcall(function() _G.ZuniHub.Alive = false end)
-    _G.ZuniHub = nil
-end
-
+if _G.ZuniHub then pcall(function() _G.ZuniHub.Alive = false end) _G.ZuniHub = nil end
 for _, guiName in ipairs({"ZuniHub", "ZuniNotify"}) do
     local g = PlayerGui:FindFirstChild(guiName)
     if g then pcall(function() g:Destroy() end) end
@@ -47,18 +41,11 @@ local Colors = {
     Shadow      = Color3.fromRGB(0, 0, 0),
 }
 
-_G.ZuniHub = {
-    Version = "3.0",
-    Alive   = true,
-    Colors  = Colors,
-    SavedStates = {},
-    UI          = {},
-    Connections = {},
-}
+_G.ZuniHub = { Version = "3.1", Alive = true, Colors = Colors, SavedStates = {}, UI = {}, Connections = {} }
 local Z = _G.ZuniHub
 
--- Persistência de Config
-local ConfigKey = "ZuniHub_Config"
+-- Persistência
+local ConfigKey = "ZuniHub_Config_Farm"
 pcall(function()
     local raw = _G[ConfigKey]
     if raw then
@@ -66,13 +53,10 @@ pcall(function()
         for k, v in pairs(decoded) do Z.SavedStates[k] = v end
     end
 end)
-
 function Z.SaveConfig() pcall(function() _G[ConfigKey] = HttpService:JSONEncode(Z.SavedStates) end) end
 function Z.Track(conn) if conn then table.insert(Z.Connections, conn) end return conn end
 
--- =====================================================================
--- 2. UI PRINCIPAL (ZUNI HUB)
--- =====================================================================
+-- 2. UI PRINCIPAL
 local Hub = Instance.new("ScreenGui", PlayerGui)
 Hub.Name, Hub.ResetOnSpawn, Hub.IgnoreGuiInset, Hub.ZIndexBehavior = "ZuniHub", false, true, Enum.ZIndexBehavior.Sibling
 Hub.DisplayOrder = 999
@@ -95,7 +79,6 @@ function Z.Notify(title, text, color, duration)
     local toast = Instance.new("Frame", notifyContainer)
     toast.Size, toast.BackgroundColor3, toast.BorderSizePixel, toast.ZIndex, toast.LayoutOrder = UDim2.new(1, 0, 0, 0), Colors.Card, 0, 101, notifyCounter
     Instance.new("UICorner", toast).CornerRadius = UDim.new(0, 10)
-    
     local accent = Instance.new("Frame", toast)
     accent.Size, accent.Position, accent.BackgroundColor3, accent.BorderSizePixel = UDim2.new(0, 4, 1, -12), UDim2.new(0, 4, 0, 6), color, 0
     Instance.new("UICorner", accent).CornerRadius = UDim.new(0, 10)
@@ -130,7 +113,7 @@ local Shadow = Instance.new("Frame", Hub)
 Shadow.Size, Shadow.BackgroundColor3, Shadow.BackgroundTransparency, Shadow.BorderSizePixel, Shadow.ZIndex, Shadow.Visible = UDim2.fromScale(1, 1), Colors.Shadow, 1, 0, 1, false
 
 local Main = Instance.new("Frame", Hub)
-Main.Size, Main.Position, Main.AnchorPoint = UDim2.fromOffset(780, 500), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5)
+Main.Size, Main.Position, Main.AnchorPoint = UDim2.fromOffset(600, 500), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5)
 Main.BackgroundColor3, Main.BorderSizePixel, Main.ZIndex, Main.Visible, Main.Active, Main.Draggable = Colors.Bg, 0, 2, false, true, true
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 16)
 local MainStroke = Instance.new("UIStroke", Main)
@@ -142,7 +125,7 @@ local grad = Instance.new("UIGradient", TopGlow)
 grad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Colors.Accent), ColorSequenceKeypoint.new(0.5, Colors.Purple), ColorSequenceKeypoint.new(1, Colors.Accent)})
 
 local Sidebar = Instance.new("Frame", Main)
-Sidebar.Size, Sidebar.BackgroundColor3, Sidebar.BorderSizePixel, Sidebar.ZIndex = UDim2.fromOffset(200, 500), Colors.Sidebar, 0, 3
+Sidebar.Size, Sidebar.BackgroundColor3, Sidebar.BorderSizePixel, Sidebar.ZIndex = UDim2.fromOffset(180, 500), Colors.Sidebar, 0, 3
 Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 16)
 local sideCover = Instance.new("Frame", Sidebar)
 sideCover.Size, sideCover.Position, sideCover.BackgroundColor3, sideCover.BorderSizePixel, sideCover.ZIndex = UDim2.fromOffset(16, 500), UDim2.new(1, -16, 0, 0), Colors.Sidebar, 0, 4
@@ -154,12 +137,13 @@ Instance.new("UIStroke", LogoCard).Color, Instance.new("UIStroke", LogoCard).Tra
 
 local LogoTitle = Instance.new("TextLabel", LogoCard)
 LogoTitle.Size, LogoTitle.Position, LogoTitle.BackgroundTransparency = UDim2.new(1, -60, 0, 24), UDim2.fromOffset(55, 6), 1
-LogoTitle.Text, LogoTitle.Font, LogoTitle.TextSize, LogoTitle.TextColor3, LogoTitle.TextXAlignment = "⚡ ZUNI HUB", Enum.Font.GothamBlack, 16, Colors.Text, Enum.TextXAlignment.Left
+LogoTitle.Text, LogoTitle.Font, LogoTitle.TextSize, LogoTitle.TextColor3, LogoTitle.TextXAlignment = "⚡ ZUNI", Enum.Font.GothamBlack, 16, Colors.Text, Enum.TextXAlignment.Left
 
 local LogoSub = Instance.new("TextLabel", LogoCard)
 LogoSub.Size, LogoSub.Position, LogoSub.BackgroundTransparency = UDim2.new(1, -60, 0, 16), UDim2.fromOffset(55, 30), 1
-LogoSub.Text, LogoSub.Font, LogoSub.TextSize, LogoSub.TextColor3, LogoSub.TextXAlignment = "v3.0 • ETW", Enum.Font.Gotham, 9, Colors.AccentLight, Enum.TextXAlignment.Left
+LogoSub.Text, LogoSub.Font, LogoSub.TextSize, LogoSub.TextColor3, LogoSub.TextXAlignment = "FARM EDITION", Enum.Font.Gotham, 9, Colors.AccentLight, Enum.TextXAlignment.Left
 
+-- Área de Tabs (O Segredo para não duplicar está aqui: Limpamos antes de criar)
 local TabsScroll = Instance.new("ScrollingFrame", Sidebar)
 TabsScroll.Size, TabsScroll.Position, TabsScroll.BackgroundTransparency, TabsScroll.BorderSizePixel = UDim2.new(1, -12, 1, -90), UDim2.fromOffset(6, 80), 1, 0
 TabsScroll.ScrollBarThickness, TabsScroll.ScrollBarImageColor3 = 2, Colors.Accent
@@ -168,7 +152,7 @@ local TabsLayout = Instance.new("UIListLayout", TabsScroll)
 TabsLayout.Padding, TabsLayout.SortOrder = UDim.new(0, 5), Enum.SortOrder.LayoutOrder
 
 local Content = Instance.new("Frame", Main)
-Content.Size, Content.Position, Content.BackgroundTransparency, Content.ZIndex = UDim2.new(1, -210, 1, -20), UDim2.fromOffset(210, 10), 1, 3
+Content.Size, Content.Position, Content.BackgroundTransparency, Content.ZIndex = UDim2.new(1, -190, 1, -20), UDim2.fromOffset(190, 10), 1, 3
 
 local TabTitle = Instance.new("TextLabel", Content)
 TabTitle.Size, TabTitle.BackgroundTransparency, TabTitle.Text = UDim2.new(1, -80, 0, 32), 1, "Home"
@@ -201,7 +185,7 @@ local MinBtn, CloseBtn = TopBtn("─", Colors.Card, -76), TopBtn("✕", Colors.D
 
 function Z.ShowHub()
     Shadow.Visible, Main.Visible, Main.Size, Main.BackgroundTransparency, Sidebar.BackgroundTransparency, Shadow.BackgroundTransparency = true, true, UDim2.fromOffset(0, 0), 1, 1, 1
-    TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(780, 500), BackgroundTransparency = 0}):Play()
+    TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(600, 500), BackgroundTransparency = 0}):Play()
     TweenService:Create(Sidebar, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {BackgroundTransparency = 0}):Play()
     TweenService:Create(Shadow, TweenInfo.new(0.35), {BackgroundTransparency = 0.5}):Play()
 end
@@ -211,7 +195,7 @@ function Z.HideHub(cb)
     TweenService:Create(Sidebar, TweenInfo.new(0.22), {BackgroundTransparency = 1}):Play()
     local t = TweenService:Create(Shadow, TweenInfo.new(0.22), {BackgroundTransparency = 1})
     t:Play()
-    t.Completed:Connect(function() Shadow.Visible, Main.Visible, Main.Size = false, false, UDim2.fromOffset(780, 500) if cb then cb() end end)
+    t.Completed:Connect(function() Shadow.Visible, Main.Visible, Main.Size = false, false, UDim2.fromOffset(600, 500) if cb then cb() end end)
 end
 
 -- Widgets
@@ -296,17 +280,6 @@ function Z.Slider(name, min, max, default, callback)
     return f
 end
 
-function Z.Button(name, color, callback)
-    color = color or Colors.Accent
-    local b = Instance.new("TextButton", Scroll)
-    b.Size, b.BackgroundColor3, b.Text, b.Font, b.TextSize, b.TextColor3, b.BorderSizePixel, b.AutoButtonColor = UDim2.new(1, 0, 0, 38), color, name, Enum.Font.GothamBold, 11, Colors.Text, 0, false
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
-    b.MouseEnter:Connect(function() TweenService:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = color:Lerp(Color3.new(1,1,1), 0.2)}):Play() end)
-    b.MouseLeave:Connect(function() TweenService:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = color}):Play() end)
-    b.MouseButton1Click:Connect(function() if callback then pcall(callback) end end)
-    return b
-end
-
 local activeTab = nil
 function Z.AddTab(name, icon, callback)
     local btn = Instance.new("TextButton", TabsScroll)
@@ -331,87 +304,19 @@ function Z.AddTab(name, icon, callback)
         TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Colors.AccentDark, TextColor3 = Colors.Text}):Play()
         if callback then pcall(callback) end
     end)
+    return btn
 end
 
--- Minimize e Close
-local isMini, Bubble = false, nil
-MinBtn.MouseButton1Click:Connect(function()
-    if isMini then return end
-    isMini = true
-    Z.HideHub(function()
-        Bubble = Instance.new("TextButton", Hub)
-        Bubble.AnchorPoint, Bubble.Position, Bubble.Size, Bubble.Text, Bubble.Font, Bubble.TextSize, Bubble.TextColor3, Bubble.BackgroundColor3, Bubble.AutoButtonColor, Bubble.BorderSizePixel, Bubble.ZIndex = Vector2.new(0.5, 0.5), UDim2.new(0.85, 0, 0.85, 0), UDim2.fromOffset(0, 0), "Z", Enum.Font.GothamBlack, 22, Colors.Text, Colors.Accent, false, 0, 100
-        Instance.new("UICorner", Bubble).CornerRadius = UDim.new(1, 0)
-        local s = Instance.new("UIStroke", Bubble); s.Color, s.Thickness = Colors.AccentLight, 2
-        TweenService:Create(Bubble, TweenInfo.new(0.35, Enum.EasingStyle.Back), {Size = UDim2.fromOffset(58, 58)}):Play()
-        Bubble.MouseButton1Click:Connect(function()
-            TweenService:Create(Bubble, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Size = UDim2.fromOffset(0, 0)}):Play()
-            task.delay(0.2, function() if Bubble then Bubble:Destroy(); Bubble = nil; isMini = false; Z.ShowHub() end end)
-        end)
-    end)
-end)
-
-CloseBtn.MouseButton1Click:Connect(function()
-    local overlay = Instance.new("Frame", Hub)
-    overlay.Size, overlay.BackgroundColor3, overlay.BackgroundTransparency, overlay.ZIndex = UDim2.fromScale(1, 1), Colors.Shadow, 1, 50
-    TweenService:Create(overlay, TweenInfo.new(0.2), {BackgroundTransparency = 0.6}):Play()
-    local popup = Instance.new("Frame", overlay)
-    popup.Size, popup.Position, popup.AnchorPoint, popup.BackgroundColor3, popup.BorderSizePixel, popup.ZIndex = UDim2.fromOffset(0, 0), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5), Colors.BgSoft, 0, 51
-    Instance.new("UICorner", popup).CornerRadius = UDim.new(0, 14)
-    Instance.new("UIStroke", popup).Color = Colors.Accent
-    TweenService:Create(popup, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Size = UDim2.fromOffset(340, 190)}):Play()
-    local msg = Instance.new("TextLabel", popup)
-    msg.Size, msg.Position, msg.BackgroundTransparency, msg.Text = UDim2.new(1, -30, 0, 50), UDim2.fromOffset(15, 30), 1, "Tem certeza que deseja fechar o Zuni Hub?\nVocê terá que executar o script novamente."
-    msg.Font, msg.TextSize, msg.TextColor3, msg.TextWrapped, msg.ZIndex = Enum.Font.Gotham, 11, Colors.TextDim, true, 52
-    local yes = Instance.new("TextButton", popup)
-    yes.Size, yes.Position, yes.Text, yes.Font, yes.TextSize, yes.TextColor3, yes.BackgroundColor3, yes.BorderSizePixel, yes.AutoButtonColor, yes.ZIndex = UDim2.fromOffset(130, 36), UDim2.fromOffset(35, 130), "Sim, fechar", Enum.Font.GothamBold, 11, Colors.Text, Colors.Danger, 0, false, 52
-    Instance.new("UICorner", yes).CornerRadius = UDim.new(0, 8)
-    local no = Instance.new("TextButton", popup)
-    no.Size, no.Position, no.Text, no.Font, no.TextSize, no.TextColor3, no.BackgroundColor3, no.BorderSizePixel, no.AutoButtonColor, no.ZIndex = UDim2.fromOffset(130, 36), UDim2.fromOffset(175, 130), "Cancelar", Enum.Font.GothamBold, 11, Colors.Text, Colors.Card, 0, false, 52
-    Instance.new("UICorner", no).CornerRadius = UDim.new(0, 8)
-    yes.MouseButton1Click:Connect(function() Z.Alive = false; Z.SaveConfig(); Hub:Destroy(); NotifyGui:Destroy() end)
-    no.MouseButton1Click:Connect(function()
-        TweenService:Create(overlay, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play()
-        local t = TweenService:Create(popup, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {Size = UDim2.fromOffset(0, 0)})
-        t:Play(); t.Completed:Connect(function() overlay:Destroy() end)
-    end)
-end)
-
-UIS.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
-    if input.KeyCode == Enum.KeyCode.Insert then
-        if isMini and Bubble then
-            TweenService:Create(Bubble, TweenInfo.new(0.2), {Size = UDim2.fromOffset(0, 0)}):Play()
-            task.delay(0.2, function() if Bubble then Bubble:Destroy(); Bubble = nil; isMini = false; Z.ShowHub() end end)
-        elseif not Main.Visible then
-            Z.ShowHub()
-        elseif Main.Visible then
-            isMini = true
-            Z.HideHub(function()
-                Bubble = Instance.new("TextButton", Hub)
-                Bubble.AnchorPoint, Bubble.Position, Bubble.Size, Bubble.Text, Bubble.Font, Bubble.TextSize, Bubble.TextColor3, Bubble.BackgroundColor3, Bubble.AutoButtonColor, Bubble.BorderSizePixel, Bubble.ZIndex = Vector2.new(0.5, 0.5), UDim2.new(0.85, 0, 0.85, 0), UDim2.fromOffset(58, 58), "Z", Enum.Font.GothamBlack, 22, Colors.Text, Colors.Accent, false, 0, 100
-                Instance.new("UICorner", Bubble).CornerRadius = UDim.new(1, 0)
-                local s = Instance.new("UIStroke", Bubble); s.Color, s.Thickness = Colors.AccentLight, 2
-                Bubble.MouseButton1Click:Connect(function() Bubble:Destroy(); Bubble = nil; isMini = false; Z.ShowHub() end)
-            end)
-        end
-    end
-end)
-
--- =====================================================================
--- 3. MÓDULO ETW (INTEGRADO)
--- =====================================================================
+-- 3. MÓDULO ETW (Farm)
 local S = Z.SavedStates
 local function Def(k, v) if S[k] == nil then S[k] = v end end
 Def("grabActive", false) Def("grabInterval", 500) Def("grabPauseDuration", 5) Def("grabSellOnFail", false)
 Def("eatActive", false) Def("eatInterval", 300) Def("throwActive", false) Def("throwInterval", 500)
 Def("sellTimerActive", false) Def("sellTimerInterval", 12000) Def("smartSellActive", false) Def("smartSellThreshold", 5)
-Def("autoRewardsActive", false) Def("autoRewardsDelay", 3) Def("walkActive", false) Def("walkInterval", 800)
-Def("teleActive", false) Def("teleInterval", 6) Def("teleRadius", 2048) Def("jumpActive", false)
-Def("antiKnockActive", false) Def("antiAfkActive", false)
+Def("walkActive", false) Def("walkInterval", 800) Def("autoRewardsActive", false) Def("autoRewardsDelay", 3)
 
-local F = { grab = false, eat = false, throw = false, sellTimer = false, smartSell = false, autoRewards = false, walk = false, tele = false, jump = false, antiKnock = false, antiAfk = false }
-local Gen = { grab = 0, eat = 0, throw = 0, sellTimer = 0, smartSell = 0, autoRewards = 0, walk = 0, tele = 0, antiAfk = 0 }
+local F = { grab = false, eat = false, throw = false, sellTimer = false, smartSell = false, walk = false, autoRewards = false }
+local Gen = { grab = 0, eat = 0, throw = 0, sellTimer = 0, smartSell = 0, walk = 0, autoRewards = 0 }
 
 local function GetEvents() local c = Player.Character return c and c:FindFirstChild("Events") or nil end
 local function FireEvent(name)
@@ -436,8 +341,7 @@ local function HasChunk()
 end
 
 local function StartGrab()
-    Gen.grab += 1
-    local myGen = Gen.grab
+    Gen.grab += 1 local myGen = Gen.grab
     task.spawn(function()
         local paused, pauseEnd = false, 0
         while F.grab and Gen.grab == myGen and Z.Alive do
@@ -462,8 +366,7 @@ local function StartSellTimer() Gen.sellTimer += 1 local myGen = Gen.sellTimer t
 local function StopSellTimer() F.sellTimer = false; Gen.sellTimer += 1 end
 
 local function StartSmartSell()
-    Gen.smartSell += 1
-    local myGen = Gen.smartSell
+    Gen.smartSell += 1 local myGen = Gen.smartSell
     task.spawn(function()
         local lastSize, stuckTime = -1, 0
         while F.smartSell and Gen.smartSell == myGen and Z.Alive do
@@ -478,33 +381,11 @@ local function StartSmartSell()
 end
 local function StopSmartSell() F.smartSell = false; Gen.smartSell += 1 end
 
-local function StartAutoRewards()
-    Gen.autoRewards += 1
-    local myGen = Gen.autoRewards
-    task.spawn(function()
-        while F.autoRewards and Gen.autoRewards == myGen and Z.Alive do
-            local timed = Player:FindFirstChild("TimedRewards")
-            if timed then
-                for _, reward in ipairs(timed:GetChildren()) do
-                    if reward:IsA("NumberValue") and reward.Value ~= -1 and reward.Value <= os.time() then
-                        local rs = game.ReplicatedStorage:FindFirstChild("Events")
-                        local re = rs and rs:FindFirstChild("RewardEvent")
-                        if re then re:FireServer(reward) Z.Notify("Reward", "Resgatando: " .. reward.Name, Colors.Success, 2) task.wait(S.autoRewardsDelay) end
-                    end
-                end
-            end
-            task.wait(1)
-        end
-    end)
-end
-local function StopAutoRewards() F.autoRewards = false; Gen.autoRewards += 1 end
-
 local function FindGround(origin) local rp = RaycastParams.new() rp.FilterType = Enum.RaycastFilterType.Exclude if Player.Character then rp.FilterDescendantsInstances = {Player.Character} end local hit = workspace:Raycast(origin, Vector3.new(0, -1000, 0), rp) return hit and (hit.Position + Vector3.new(0, 3.5, 0)) or nil end
 local function RandomWalkablePos(origin, radius) for _ = 1, 20 do local ang = math.random() * 2 * math.pi local dist = math.random(15, radius) local pos = FindGround(Vector3.new(origin.X + math.cos(ang) * dist, origin.Y + 500, origin.Z + math.sin(ang) * dist)) if pos then return pos end end return nil end
 
 local function StartWalk()
-    Gen.walk += 1
-    local myGen = Gen.walk
+    Gen.walk += 1 local myGen = Gen.walk
     task.spawn(function()
         while F.walk and Gen.walk == myGen and Z.Alive do
             local hrp, hum = GetHRP(), GetHum()
@@ -516,121 +397,61 @@ local function StartWalk()
 end
 local function StopWalk() F.walk = false; Gen.walk += 1 local hum, hrp = GetHum(), GetHRP() if hum and hrp then hum:MoveTo(hrp.Position) end end
 
-local function StartTele() Gen.tele += 1 local myGen = Gen.tele task.spawn(function() while F.tele and Gen.tele == myGen and Z.Alive do task.wait(S.teleInterval) if not F.tele or Gen.tele ~= myGen then break end local hrp = GetHRP() if hrp then local dest = RandomWalkablePos(hrp.Position, S.teleRadius) if dest then hrp.CFrame = CFrame.new(dest) end end end end) end
-local function StopTele() F.tele = false; Gen.tele += 1 end
-
-Z.Track(UIS.JumpRequest:Connect(function() if F.jump and Z.Alive then local hum = GetHum() if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end end end))
-Z.Track(RunService.Heartbeat:Connect(function()
-    if not F.antiKnock or not Z.Alive then return end
-    local hrp, hum = GetHRP(), GetHum() if not hrp or not hum then return end
-    if hum.MoveDirection.Magnitude < 0.1 then local v = hrp.AssemblyLinearVelocity if math.abs(v.X) > 5 or math.abs(v.Z) > 5 then hrp.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0) end end
-end))
-
-local function StartAntiAfk() Gen.antiAfk += 1 local myGen = Gen.antiAfk task.spawn(function() while F.antiAfk and Gen.antiAfk == myGen and Z.Alive do pcall(function() VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, nil) task.wait(0.05) VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, nil) end) task.wait(math.random(30, 60)) end end) end
-local function StopAntiAfk() F.antiAfk = false; Gen.antiAfk += 1 end
-
 local UI = Z.UI
 local function SetGrab(v) v = not not v F.grab = v S.grabActive = v if UI.grab and UI.grab.SetState then UI.grab:SetState(v, true) end if v then StartGrab() else StopGrab() end end
 local function SetEat(v) v = not not v F.eat = v S.eatActive = v if UI.eat and UI.eat.SetState then UI.eat:SetState(v, true) end if v then StartEat() else StopEat() end end
 local function SetThrow(v) v = not not v F.throw = v S.throwActive = v if UI.throw and UI.throw.SetState then UI.throw:SetState(v, true) end if v then StartThrow() else StopThrow() end end
 local function SetSellTimer(v) v = not not v F.sellTimer = v S.sellTimerActive = v if UI.sellTimer and UI.sellTimer.SetState then UI.sellTimer:SetState(v, true) end if v then if F.smartSell then SetSmartSell(false) end StartSellTimer() else StopSellTimer() end end
 local function SetSmartSell(v) v = not not v F.smartSell = v S.smartSellActive = v if UI.smartSell and UI.smartSell.SetState then UI.smartSell:SetState(v, true) end if v then if F.sellTimer then SetSellTimer(false) end StartSmartSell() else StopSmartSell() end end
-local function SetAutoRewards(v) v = not not v F.autoRewards = v S.autoRewardsActive = v if UI.autoRewards and UI.autoRewards.SetState then UI.autoRewards:SetState(v, true) end if v then StartAutoRewards() else StopAutoRewards() end end
 local function SetWalk(v) v = not not v F.walk = v S.walkActive = v if UI.walk and UI.walk.SetState then UI.walk:SetState(v, true) end if v then StartWalk() else StopWalk() end end
-local function SetTele(v) v = not not v F.tele = v S.teleActive = v if UI.tele and UI.tele.SetState then UI.tele:SetState(v, true) end if v then StartTele() else StopTele() end end
-local function SetJump(v) v = not not v F.jump = v S.jumpActive = v if UI.jump and UI.jump.SetState then UI.jump:SetState(v, true) end end
-local function SetAntiKnock(v) v = not not v F.antiKnock = v S.antiKnockActive = v if UI.antiKnock and UI.antiKnock.SetState then UI.antiKnock:SetState(v, true) end end
-local function SetAntiAfk(v) v = not not v F.antiAfk = v S.antiAfkActive = v if UI.antiAfk and UI.antiAfk.SetState then UI.antiAfk:SetState(v, true) end if v then StartAntiAfk() else StopAntiAfk() end end
 
-Z.Track(UIS.InputBegan:Connect(function(input, gpe)
-    if gpe or not Z.Alive then return end
-    if input.KeyCode == Enum.KeyCode.G then SetGrab(not F.grab) Z.Notify("Grab", F.grab and "Ativado" or "Desativado", F.grab and Colors.Success or Colors.TextDim, 2)
-    elseif input.KeyCode == Enum.KeyCode.E then SetEat(not F.eat) Z.Notify("Eat", F.eat and "Ativado" or "Desativado", F.eat and Colors.Success or Colors.TextDim, 2)
-    elseif input.KeyCode == Enum.KeyCode.T then SetThrow(not F.throw) Z.Notify("Throw", F.throw and "Ativado" or "Desativado", F.throw and Colors.Success or Colors.TextDim, 2)
-    elseif input.KeyCode == Enum.KeyCode.V then if F.smartSell then SetSmartSell(false); SetSellTimer(true) elseif F.sellTimer then SetSellTimer(false); SetSmartSell(true) else SetSellTimer(true) end end
-end))
-
-local statusFrame = Instance.new("Frame", Z.GUI.Main)
-statusFrame.Size, statusFrame.Position, statusFrame.BackgroundColor3, statusFrame.BorderSizePixel, statusFrame.ZIndex = UDim2.new(1, -220, 0, 22), UDim2.new(0, 210, 1, -32), Colors.Card, 0, 20
-Instance.new("UICorner", statusFrame).CornerRadius = UDim.new(0, 6)
-local statusText = Instance.new("TextLabel", statusFrame)
-statusText.Size, statusText.Position, statusText.BackgroundTransparency = UDim2.new(1, -16, 1, 0), UDim2.fromOffset(8, 0), 1
-statusText.Font, statusText.TextSize, statusText.TextColor3, statusText.TextXAlignment, statusText.ZIndex = Enum.Font.GothamBold, 10, Colors.TextDim, Enum.TextXAlignment.Left, 21
-Z.Track(RunService.Heartbeat:Connect(function()
-    if not Z.Alive or not statusFrame.Parent then return end
-    local active = {}
-    if F.grab then table.insert(active, "🖐") end if F.eat then table.insert(active, "🍽") end if F.throw then table.insert(active, "🗑") end
-    if F.sellTimer then table.insert(active, "💰") end if F.smartSell then table.insert(active, "🧠") end if F.autoRewards then table.insert(active, "🎁") end
-    if F.walk then table.insert(active, "🚶") end if F.tele then table.insert(active, "🌀") end if F.jump then table.insert(active, "⬆") end if F.antiAfk then table.insert(active, "👆") end
-    statusText.Text = #active == 0 and "💤 Nenhum módulo ativo" or "✅ Ativos: " .. table.concat(active, " ")
-end))
-
+-- 4. ABA ÚNICA: AUTO FARM
 local function LoadAutoFarm()
-    Z.GUI.Clear() Z.GUI.TabTitle.Text = "🌾 Auto Farm"
-    Z.Sep("🖐️  AUTO GRAB") Z.Info("Pega objetos automaticamente. Só tenta se não tiver chunk.")
+    Z.GUI.Clear()
+    Z.GUI.TabTitle.Text = "🌾 Auto Farm"
+
+    Z.Sep("🖐️  AUTO GRAB")
+    Z.Info("Pega objetos automaticamente. Só tenta se não tiver chunk.")
     UI.grab = Z.Toggle("Ativar Auto Grab", F.grab, SetGrab)
     Z.Slider("Intervalo entre tentativas (ms)", 100, 3000, S.grabInterval, function(v) S.grabInterval = v end)
     Z.Slider("Pausa após falha (s)", 1, 15, S.grabPauseDuration, function(v) S.grabPauseDuration = v end)
-    UI.grabSellOnFail = Z.Toggle("Auto Sell ao falhar grab", S.grabSellOnFail, function(v) S.grabSellOnFail = v end)
 
-    Z.Sep("🍽️  AUTO EAT") Z.Info("Come automaticamente. Ideal para crescer rapidamente.")
+    Z.Sep("🍽️  AUTO EAT")
+    Z.Info("Come automaticamente. Ideal para crescer rapidamente.")
     UI.eat = Z.Toggle("Ativar Auto Eat", F.eat, SetEat)
     Z.Slider("Intervalo entre mordidas (ms)", 100, 3000, S.eatInterval, function(v) S.eatInterval = v end)
 
-    Z.Sep("🗑️  AUTO THROW") Z.Info("Joga o que estiver na mão fora. Útil para liberar grab.")
+    Z.Sep("🗑️  AUTO THROW")
+    Z.Info("Joga o que estiver na mão fora. Útil para liberar grab.")
     UI.throw = Z.Toggle("Ativar Auto Throw", F.throw, SetThrow)
     Z.Slider("Intervalo entre arremessos (ms)", 100, 3000, S.throwInterval, function(v) S.throwInterval = v end)
 
-    Z.Sep("💰  AUTO SELL (TIMER)") Z.Info("Vende a cada X ms. Simples e direto.")
-    UI.sellTimer = Z.Toggle("Ativar Sell Timer", F.sellTimer, SetSellTimer)
+    Z.Sep("💰  AUTO SELL (TIMER)")
+    Z.Info("Vende a cada X ms. Simples e direto.")
+    UI.sellTimer = Z.Toggle("Ativar Auto Sell", F.sellTimer, SetSellTimer)
     Z.Slider("Vender a cada (ms)", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v end)
 
-    Z.Sep("🧠  SMART SELL (TAMANHO)") Z.Info("Verifica leaderstats.Size. Se parar de crescer, vende.")
+    Z.Sep("🧠  SMART SELL (TAMANHO)")
+    Z.Info("Verifica leaderstats.Size. Se parar de crescer, vende.")
     UI.smartSell = Z.Toggle("Ativar Smart Sell", F.smartSell, SetSmartSell)
     Z.Slider("Tempo travado para vender (s)", 2, 20, S.smartSellThreshold, function(v) S.smartSellThreshold = v end)
 
-    Z.Sep("🎁  AUTO RESGATAR RECOMPENSAS") Z.Info("Resgata recompensas de tempo (TimedRewards) automaticamente.")
-    UI.autoRewards = Z.Toggle("Ativar Auto Rewards", F.autoRewards, SetAutoRewards)
-    Z.Slider("Delay entre resgates (s)", 1, 10, S.autoRewardsDelay, function(v) S.autoRewardsDelay = v end)
-end
-
-local function LoadMovement()
-    Z.GUI.Clear() Z.GUI.TabTitle.Text = "🚶 Movimento"
-    Z.Sep("🚶  AUTO WALK") Z.Info("Anda aleatoriamente pelo mapa com detecção de chão.")
+    Z.Sep("🚶  AUTO WALK")
+    Z.Info("Anda aleatoriamente pelo mapa com detecção de chão.")
     UI.walk = Z.Toggle("Ativar Auto Walk", F.walk, SetWalk)
     Z.Slider("Intervalo de passos (ms)", 200, 3000, S.walkInterval, function(v) S.walkInterval = v end)
-
-    Z.Sep("🌀  AUTO TELEPORT") Z.Info("Teleporta para posições aleatórias próximas.")
-    UI.tele = Z.Toggle("Ativar Auto Teleport", F.tele, SetTele)
-    Z.Slider("Teleportar a cada (s)", 1, 120, S.teleInterval, function(v) S.teleInterval = v end)
-    Z.Slider("Raio de distância (studs)", 50, 4096, S.teleRadius, function(v) S.teleRadius = v end)
-
-    Z.Sep("⬆️  AUTO JUMP") Z.Info("Permite pular infinitamente no ar.")
-    UI.jump = Z.Toggle("Ativar Auto Jump", F.jump, SetJump)
 end
 
-local function LoadMisc()
-    Z.GUI.Clear() Z.GUI.TabTitle.Text = "⚙️ Misc"
-    Z.Sep("🛡️  UTILIDADES") Z.Info("Anti Knockback: impede empurrões.")
-    UI.antiKnock = Z.Toggle("Ativar Anti Knockback", F.antiKnock, SetAntiKnock)
-    Z.Info("Anti AFK: teclas periódicas para evitar kick.")
-    UI.antiAfk = Z.Toggle("Ativar Anti AFK", F.antiAfk, SetAntiAfk)
-
-    Z.Sep("🔧  AÇÕES RÁPIDAS")
-    Z.Button("🔄 Respawn", Colors.AccentDark, function() Player:LoadCharacter() Z.Notify("Respawn", "Personagem recriado", Colors.Success, 2) end)
-    Z.Button("🏠 TP para Origem", Colors.AccentDark, function() local hrp = GetHRP() if hrp then local ground = FindGround(Vector3.new(0, 500, 0)) hrp.CFrame = CFrame.new(ground or Vector3.new(0, 5, 0)) Z.Notify("Teleport", "Teleportado para origem", Colors.Success, 2) end end)
-    Z.Button("🖐️ Soltar Grab Forçado", Colors.Danger, function() FireEvent("GrabRelease") FireEvent("ReleaseGrab") FireEvent("Drop") FireEvent("LetGo") pcall(function() VIM:SendKeyEvent(true, Enum.KeyCode.G, false, nil) task.wait(0.05) VIM:SendKeyEvent(false, Enum.KeyCode.G, false, nil) end) Z.Notify("Grab", "Chunk solto forçadamente", Colors.Warning, 2) end)
-    Z.Sep("📋  INFO") Z.Info("[G] Grab | [E] Eat | [T] Throw") Z.Info("[V] Alterna entre Timer Sell e Smart Sell")
+-- O SEGREDO PARA NÃO DUPLICAR: Limpar abas antigas da UI antes de iniciar
+for _, v in ipairs(TabsScroll:GetChildren()) do
+    if v:IsA("TextButton") then v:Destroy() end
 end
 
 Z.AddTab("Auto Farm", "🌾", LoadAutoFarm)
-Z.AddTab("Movimento", "🚶", LoadMovement)
-Z.AddTab("Misc",      "⚙️", LoadMisc)
+-- Força o clique na aba para inicializar
+TabsScroll:GetChildren()[2]:FindFirstChildWhichIsA("TextButton"):WaitForChild("UIStroke") -- gambiarra só pra garantir o carregamento
 
--- =====================================================================
--- 4. INICIAR
--- =====================================================================
 Z.ShowHub()
 Z.Ready = true
-Z.Notify("Zuni Hub", "Hub v3.0 e Módulo ETW carregados!", Colors.Success, 4)
-print("⚡ Zuni Hub v3.0 (All-in-One) Iniciado com Sucesso!")
+Z.Notify("Zuni Hub", "Hub e Módulo Farm carregados!", Colors.Success, 4)
+print("⚡ Zuni Hub (Farm Edition) Iniciado com Sucesso!")
