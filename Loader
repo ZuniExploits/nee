@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - LOADER v4.0                                            ║
+-- ║  ZUNI HUB - LOADER v4.1                                            ║
 -- ║  Limpa, baixa a base, detecta o jogo e carrega o módulo            ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -46,7 +46,7 @@ Cleanup()
 task.wait(0.2)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- DOWNLOAD + EXECUÇÃO SEGUROS (com retry e cache-buster)
+-- DOWNLOAD + EXECUÇÃO SEGUROS
 -- ═══════════════════════════════════════════════════════════════════════
 local function Fetch(url)
     local full = url .. "?t=" .. os.time()
@@ -90,7 +90,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 -- BASE
 -- ═══════════════════════════════════════════════════════════════════════
-print("⚡ ZUNI HUB LOADER v4.0")
+print("⚡ ZUNI HUB LOADER v4.1")
 
 if not SafeLoad(BASE_URL, "Base") then
     warn("[Loader] Abortando: não foi possível carregar a base.")
