@@ -1,361 +1,822 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - PREMIUM UI BASE v4.1                                   ║
+-- ║  ZUNI HUB - BASE v5.0                                              ║
+-- ║  UI premium, widgets estáveis, abas Home e Player                  ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
-local Player       = game.Players.LocalPlayer
-local PlayerGui    = Player:WaitForChild("PlayerGui")
-local UIS          = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local RunService   = game:GetService("RunService")
 
+local Players            = game:GetService("Players")
+local UIS                = game:GetService("UserInputService")
+local TweenService       = game:GetService("TweenService")
+local RunService         = game:GetService("RunService")
+local TeleportService    = game:GetService("TeleportService")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local Player    = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- PALETA / FONTES
+-- ═══════════════════════════════════════════════════════════════════════
 local Colors = {
-    Bg          = Color3.fromRGB(12, 12, 18), BgSoft = Color3.fromRGB(18, 18, 26),
-    Sidebar     = Color3.fromRGB(22, 22, 32), Card = Color3.fromRGB(30, 30, 42),
-    CardHover   = Color3.fromRGB(38, 38, 55), Accent = Color3.fromRGB(110, 160, 255),
-    AccentLight = Color3.fromRGB(160, 200, 255), AccentDark = Color3.fromRGB(70, 110, 200),
-    Purple      = Color3.fromRGB(180, 120, 255), Success = Color3.fromRGB(80, 220, 130),
-    Danger      = Color3.fromRGB(255, 80, 90), Text = Color3.fromRGB(245, 245, 255),
-    TextDim     = Color3.fromRGB(160, 160, 180), TextMuted = Color3.fromRGB(100, 100, 125),
-    Border      = Color3.fromRGB(55, 55, 75), Divider = Color3.fromRGB(40, 40, 55),
-    Shadow      = Color3.fromRGB(0, 0, 0),
+    Bg          = Color3.fromRGB(13, 14, 20),
+    Sidebar     = Color3.fromRGB(18, 19, 28),
+    Card        = Color3.fromRGB(26, 27, 39),
+    CardHover   = Color3.fromRGB(36, 38, 54),
+    Accent      = Color3.fromRGB(99, 142, 255),
+    AccentLight = Color3.fromRGB(150, 185, 255),
+    AccentDark  = Color3.fromRGB(60, 95, 190),
+    Purple      = Color3.fromRGB(170, 120, 255),
+    Success     = Color3.fromRGB(70, 210, 125),
+    Warning     = Color3.fromRGB(255, 195, 70),
+    Danger      = Color3.fromRGB(240, 75, 90),
+    Text        = Color3.fromRGB(245, 246, 255),
+    TextDim     = Color3.fromRGB(165, 168, 190),
+    TextMuted   = Color3.fromRGB(110, 113, 138),
+    Border      = Color3.fromRGB(52, 54, 76),
+    Divider     = Color3.fromRGB(38, 40, 56),
 }
 
-if _G.ZuniHub then pcall(function() _G.ZuniHub.Alive = false end) _G.ZuniHub = nil end
-for _, g in ipairs(PlayerGui:GetChildren()) do if g.Name == "ZuniHub" or g.Name == "ZuniNotify" then g:Destroy() end end
-task.wait(0.1)
+local F_REG, F_MED, F_BOLD, F_BLACK =
+    Enum.Font.Gotham, Enum.Font.GothamMedium, Enum.Font.GothamBold, Enum.Font.GothamBlack
 
-_G.ZuniHub = { Version = "4.1", Alive = true, Colors = Colors, SavedStates = {}, UI = {}, Connections = {} }
-local Z = _G.ZuniHub
+-- ═══════════════════════════════════════════════════════════════════════
+-- LIMPEZA DE EXECUÇÕES ANTERIORES + ONDE CRIAR A GUI
+-- ═══════════════════════════════════════════════════════════════════════
+local function SafeParent()
+    local ok, h = pcall(function() return gethui and gethui() end)
+    if ok and typeof(h) == "Instance" then return h end
+    local ok2, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok2 and cg then
+        local t = Instance.new("Folder")
+        local ok3 = pcall(function() t.Parent = cg end)
+        pcall(function() t:Destroy() end)
+        if ok3 then return cg end
+    end
+    return PlayerGui
+end
+local GuiParent = SafeParent()
 
-local Hub = Instance.new("ScreenGui", PlayerGui)
-Hub.Name, Hub.ResetOnSpawn, Hub.IgnoreGuiInset, Hub.ZIndexBehavior, Hub.DisplayOrder = "ZuniHub", false, true, Enum.ZIndexBehavior.Sibling, 999
+do
+    if _G.ZuniHub then
+        pcall(function()
+            if _G.ZuniHub.Destroy then _G.ZuniHub.Destroy() else _G.ZuniHub.Alive = false end
+        end)
+        _G.ZuniHub = nil
+    end
+    local roots = { PlayerGui, GuiParent }
+    pcall(function() table.insert(roots, game:GetService("CoreGui")) end)
+    for _, root in ipairs(roots) do
+        pcall(function()
+            for _, n in ipairs({ "ZuniHub", "ZuniNotify" }) do
+                local g = root:FindFirstChild(n)
+                if g then g:Destroy() end
+            end
+        end)
+    end
+end
 
-local NotifyGui = Instance.new("ScreenGui", PlayerGui)
-NotifyGui.Name, NotifyGui.ResetOnSpawn, NotifyGui.IgnoreGuiInset, NotifyGui.DisplayOrder = "ZuniNotify", false, true, 1000
+local Z = {
+    Version = "5.0", Alive = true, Ready = false,
+    Colors = Colors, SavedStates = {}, UI = {}, Connections = {},
+    Tabs = {}, TabOrder = {}, CurrentTab = nil,
+    ModuleName = "Nenhum", PageGen = 0, IsVisible = false,
+    FPS = 60, StartTime = tick(),
+}
+_G.ZuniHub = Z
+local S = Z.SavedStates
 
-local notifyContainer = Instance.new("Frame", NotifyGui)
-notifyContainer.Size, notifyContainer.Position, notifyContainer.BackgroundTransparency, notifyContainer.ZIndex = UDim2.new(0, 320, 1, 0), UDim2.new(1, -340, 0, 20), 1, 100
-local notifyLayout = Instance.new("UIListLayout", notifyContainer)
-notifyLayout.Padding, notifyLayout.SortOrder = UDim.new(0, 8), Enum.SortOrder.LayoutOrder
-local notifyCounter = 0
+function Z.Track(conn)
+    if conn then table.insert(Z.Connections, conn) end
+    return conn
+end
+function Z.DisconnectAll()
+    for _, c in ipairs(Z.Connections) do pcall(function() c:Disconnect() end) end
+    table.clear(Z.Connections)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- HELPERS
+-- ═══════════════════════════════════════════════════════════════════════
+local function New(class, props, parent)
+    local o = Instance.new(class)
+    for k, v in pairs(props) do o[k] = v end
+    if parent then o.Parent = parent end
+    return o
+end
+local function Corner(o, r) return New("UICorner", { CornerRadius = UDim.new(0, r) }, o) end
+local function Stroke(o, color, thick, transp)
+    return New("UIStroke", {
+        Color = color, Thickness = thick or 1, Transparency = transp or 0,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, o)
+end
+local function Tween(o, t, props, style, dir)
+    local tw = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
+    tw:Play()
+    return tw
+end
+local function Label(parent, text, size, color, font, pos, sz, align)
+    return New("TextLabel", {
+        BackgroundTransparency = 1, Text = text, TextSize = size, TextColor3 = color,
+        Font = font or F_REG, Position = pos or UDim2.new(), Size = sz or UDim2.fromScale(1, 1),
+        TextXAlignment = align or Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, parent)
+end
+local function Safe(cb, ...)
+    if not cb then return end
+    local ok, err = pcall(cb, ...)
+    if not ok then warn("[Zuni] " .. tostring(err)) end
+end
+local function IsPointer(i)
+    return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+end
+local function Luma(c) return c.R * 0.299 + c.G * 0.587 + c.B * 0.114 end
+
+Z.Util = { New = New, Corner = Corner, Stroke = Stroke, Tween = Tween, Label = Label }
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- SCREEN GUIS
+-- ═══════════════════════════════════════════════════════════════════════
+local Hub = New("ScreenGui", {
+    Name = "ZuniHub", ResetOnSpawn = false, IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 999,
+}, GuiParent)
+local NotifyGui = New("ScreenGui", {
+    Name = "ZuniNotify", ResetOnSpawn = false, IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 1000,
+}, GuiParent)
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- NOTIFICAÇÕES
+-- ═══════════════════════════════════════════════════════════════════════
+local NotifyHolder = New("Frame", {
+    BackgroundTransparency = 1, Size = UDim2.new(0, 320, 1, -20), Position = UDim2.new(1, -336, 0, 16),
+}, NotifyGui)
+New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, NotifyHolder)
+local notifyN = 0
 
 function Z.Notify(title, text, color, duration)
-    duration, color = duration or 4, color or Colors.Accent
-    notifyCounter += 1
-    local toast = Instance.new("Frame", notifyContainer)
-    toast.Size, toast.BackgroundColor3, toast.BorderSizePixel, toast.ZIndex, toast.LayoutOrder = UDim2.new(1, 0, 0, 0), Colors.Card, 0, 101, notifyCounter
-    Instance.new("UICorner", toast).CornerRadius = UDim.new(0, 10)
-    local accent = Instance.new("Frame", toast)
-    accent.Size, accent.Position, accent.BackgroundColor3, accent.BorderSizePixel = UDim2.new(0, 4, 1, -12), UDim2.new(0, 4, 0, 6), color, 0
-    Instance.new("UICorner", accent).CornerRadius = UDim.new(0, 10)
-    Instance.new("UIStroke", toast).Color = color
+    if not Z.Alive or not NotifyHolder.Parent then return end
+    color, duration = color or Colors.Accent, duration or 4
+    notifyN += 1
+    local toast = New("Frame", {
+        Size = UDim2.new(1, 0, 0, 0), BackgroundColor3 = Colors.Card, BorderSizePixel = 0,
+        ClipsDescendants = true, LayoutOrder = notifyN,
+    }, NotifyHolder)
+    Corner(toast, 10)
+    Stroke(toast, color, 1, 0.5)
+    Corner(New("Frame", { Size = UDim2.new(0, 4, 1, -20), Position = UDim2.fromOffset(8, 10), BackgroundColor3 = color, BorderSizePixel = 0 }, toast), 2)
+    Label(toast, title, 14, Colors.Text, F_BOLD, UDim2.fromOffset(22, 8), UDim2.new(1, -34, 0, 20))
+    New("TextLabel", {
+        BackgroundTransparency = 1, Text = text or "", Font = F_REG, TextSize = 12, TextColor3 = Colors.TextDim,
+        TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+        Position = UDim2.fromOffset(22, 29), Size = UDim2.new(1, -34, 0, 30),
+    }, toast)
+    local bar = New("Frame", {
+        Size = UDim2.new(1, -24, 0, 3), Position = UDim2.new(0, 12, 1, -8), BackgroundColor3 = color, BorderSizePixel = 0,
+    }, toast)
+    Corner(bar, 2)
 
-    local titleLbl = Instance.new("TextLabel", toast)
-    titleLbl.Size, titleLbl.Position, titleLbl.BackgroundTransparency = UDim2.new(1, -24, 0, 20), UDim2.fromOffset(16, 10), 1
-    titleLbl.Text, titleLbl.Font, titleLbl.TextSize, titleLbl.TextColor3, titleLbl.TextXAlignment = title, Enum.Font.GothamBold, 12, Colors.Text, Enum.TextXAlignment.Left
-
-    local textLbl = Instance.new("TextLabel", toast)
-    textLbl.Size, textLbl.Position, textLbl.BackgroundTransparency = UDim2.new(1, -24, 0, 32), UDim2.fromOffset(16, 30), 1
-    textLbl.Text, textLbl.Font, textLbl.TextSize, textLbl.TextColor3, textLbl.TextXAlignment, textLbl.TextWrapped = text, Enum.Font.Gotham, 10, Colors.TextDim, Enum.TextXAlignment.Left, true
-
-    local progress = Instance.new("Frame", toast)
-    progress.Size, progress.Position, progress.BackgroundColor3, progress.BorderSizePixel = UDim2.new(1, -20, 0, 2), UDim2.new(0, 10, 1, -6), color, 0
-    Instance.new("UICorner", progress).CornerRadius = UDim.new(1, 0)
-
-    TweenService:Create(toast, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Size = UDim2.new(1, 0, 0, 68)}):Play()
-    TweenService:Create(progress, TweenInfo.new(duration, Enum.EasingStyle.Linear), {Size = UDim2.new(0, 0, 0, 2)}):Play()
-
+    Tween(toast, 0.3, { Size = UDim2.new(1, 0, 0, 72) }, Enum.EasingStyle.Back)
+    Tween(bar, duration, { Size = UDim2.new(0, 0, 0, 3) }, Enum.EasingStyle.Linear)
     task.delay(duration, function()
-        if not toast or not toast.Parent then return end
-        local tw = TweenService:Create(toast, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1})
-        tw:Play()
+        if not toast.Parent then return end
+        local tw = Tween(toast, 0.25, { Size = UDim2.new(1, 0, 0, 0) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
         tw.Completed:Connect(function() pcall(function() toast:Destroy() end) end)
     end)
 end
 
-local Shadow = Instance.new("Frame", Hub)
-Shadow.Size, Shadow.BackgroundColor3, Shadow.BackgroundTransparency, Shadow.BorderSizePixel, Shadow.ZIndex, Shadow.Visible = UDim2.fromScale(1, 1), Colors.Shadow, 1, 0, 1, false
+-- ═══════════════════════════════════════════════════════════════════════
+-- JANELA PRINCIPAL
+-- ═══════════════════════════════════════════════════════════════════════
+local WIN_W, WIN_H = 720, 500
 
-local Main = Instance.new("Frame", Hub)
-Main.Size, Main.Position, Main.AnchorPoint = UDim2.fromOffset(650, 480), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5)
-Main.BackgroundColor3, Main.BorderSizePixel, Main.ZIndex, Main.Visible, Main.Active, Main.Draggable = Colors.Bg, 0, 2, false, true, true
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 16)
-local MainStroke = Instance.new("UIStroke", Main)
-MainStroke.Color, MainStroke.Thickness, MainStroke.Transparency = Colors.Border, 1.5, 0.3
+local Main = New("Frame", {
+    Name = "Main", Size = UDim2.fromOffset(WIN_W, WIN_H), Position = UDim2.fromScale(0.5, 0.5),
+    AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Colors.Bg, BorderSizePixel = 0,
+    Visible = false, Active = true,
+}, Hub)
+Corner(Main, 16)
+Stroke(Main, Colors.Border, 1.5, 0.3)
+local WinScale = New("UIScale", { Scale = 1 }, Main)
 
-local TopGlow = Instance.new("Frame", Main)
-TopGlow.Size, TopGlow.BackgroundColor3, TopGlow.BorderSizePixel, TopGlow.ZIndex = UDim2.new(1, 0, 0, 3), Colors.Accent, 0, 3
-local grad = Instance.new("UIGradient", TopGlow)
-grad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Colors.Accent), ColorSequenceKeypoint.new(0.5, Colors.Purple), ColorSequenceKeypoint.new(1, Colors.Accent)})
+local function Viewport()
+    local cam = workspace.CurrentCamera
+    return cam and cam.ViewportSize or Vector2.new(1280, 720)
+end
+local function TargetScale()
+    local vp = Viewport()
+    return math.clamp(math.min((vp.X - 24) / WIN_W, (vp.Y - 24) / WIN_H), 0.5, 1)
+end
 
-local Sidebar = Instance.new("Frame", Main)
-Sidebar.Size, Sidebar.BackgroundColor3, Sidebar.BorderSizePixel, Sidebar.ZIndex = UDim2.fromOffset(180, 480), Colors.Sidebar, 0, 3
-Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 16)
-local sideCover = Instance.new("Frame", Sidebar)
-sideCover.Size, sideCover.Position, sideCover.BackgroundColor3, sideCover.BorderSizePixel, sideCover.ZIndex = UDim2.fromOffset(16, 480), UDim2.new(1, -16, 0, 0), Colors.Sidebar, 0, 4
+-- Sidebar ---------------------------------------------------------------
+local Sidebar = New("Frame", {
+    Size = UDim2.new(0, 190, 1, 0), BackgroundColor3 = Colors.Sidebar, BorderSizePixel = 0,
+}, Main)
+Corner(Sidebar, 16)
+New("Frame", { Size = UDim2.new(0, 20, 1, 0), Position = UDim2.new(1, -20, 0, 0), BackgroundColor3 = Colors.Sidebar, BorderSizePixel = 0 }, Sidebar)
 
-local LogoCard = Instance.new("Frame", Sidebar)
-LogoCard.Size, LogoCard.Position, LogoCard.BackgroundColor3, LogoCard.BorderSizePixel, LogoCard.ZIndex = UDim2.new(1, -20, 0, 58), UDim2.fromOffset(10, 12), Colors.Card, 0, 5
-Instance.new("UICorner", LogoCard).CornerRadius = UDim.new(0, 10)
-Instance.new("UIStroke", LogoCard).Color, Instance.new("UIStroke", LogoCard).Transparency = Colors.Accent, 0.7
+local LogoCard = New("Frame", {
+    Size = UDim2.new(1, -24, 0, 58), Position = UDim2.fromOffset(12, 14),
+    BackgroundColor3 = Colors.Card, BorderSizePixel = 0, Active = true,
+}, Sidebar)
+Corner(LogoCard, 12)
+Stroke(LogoCard, Colors.Accent, 1, 0.65)
+Label(LogoCard, "⚡ ZUNI", 20, Colors.Text, F_BLACK, UDim2.fromOffset(14, 7), UDim2.new(1, -20, 0, 26))
+Label(LogoCard, "HUB  v" .. Z.Version, 11, Colors.AccentLight, F_MED, UDim2.fromOffset(15, 33), UDim2.new(1, -20, 0, 16))
 
-local LogoTitle = Instance.new("TextLabel", LogoCard)
-LogoTitle.Size, LogoTitle.Position, LogoTitle.BackgroundTransparency = UDim2.new(1, -60, 0, 24), UDim2.fromOffset(55, 6), 1
-LogoTitle.Text, LogoTitle.Font, LogoTitle.TextSize, LogoTitle.TextColor3, LogoTitle.TextXAlignment = "⚡ ZUNI", Enum.Font.GothamBlack, 18, Colors.Text, Enum.TextXAlignment.Left
+local TabsScroll = New("ScrollingFrame", {
+    Size = UDim2.new(1, -16, 1, -150), Position = UDim2.fromOffset(8, 86),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
+    ScrollBarImageColor3 = Colors.Accent, CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+}, Sidebar)
+New("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, TabsScroll)
 
-local LogoSub = Instance.new("TextLabel", LogoCard)
-LogoSub.Size, LogoSub.Position, LogoSub.BackgroundTransparency = UDim2.new(1, -60, 0, 16), UDim2.fromOffset(55, 30), 1
-LogoSub.Text, LogoSub.Font, LogoSub.TextSize, LogoSub.TextColor3, LogoSub.TextXAlignment = "HUB v4.1", Enum.Font.Gotham, 9, Colors.AccentLight, Enum.TextXAlignment.Left
+New("TextLabel", {
+    BackgroundTransparency = 1, Text = "INSERT ou R-CTRL\nmostra / esconde o hub",
+    Font = F_REG, TextSize = 11, TextColor3 = Colors.TextMuted, TextWrapped = true,
+    Position = UDim2.new(0, 12, 1, -52), Size = UDim2.new(1, -24, 0, 40),
+}, Sidebar)
 
-local TabsScroll = Instance.new("ScrollingFrame", Sidebar)
-TabsScroll.Size, TabsScroll.Position, TabsScroll.BackgroundTransparency, TabsScroll.BorderSizePixel = UDim2.new(1, -12, 1, -90), UDim2.fromOffset(6, 80), 1, 0
-TabsScroll.ScrollBarThickness, TabsScroll.ScrollBarImageColor3 = 2, Colors.Accent
-TabsScroll.CanvasSize, TabsScroll.ZIndex, TabsScroll.AutomaticCanvasSize = UDim2.new(0, 0, 0, 0), 5, Enum.AutomaticSize.Y
-local TabsLayout = Instance.new("UIListLayout", TabsScroll)
-TabsLayout.Padding, TabsLayout.SortOrder = UDim.new(0, 5), Enum.SortOrder.LayoutOrder
+-- Conteúdo --------------------------------------------------------------
+local Content = New("Frame", {
+    Size = UDim2.new(1, -190, 1, 0), Position = UDim2.fromOffset(190, 0), BackgroundTransparency = 1,
+}, Main)
 
-local Content = Instance.new("Frame", Main)
-Content.Size, Content.Position, Content.BackgroundTransparency, Content.ZIndex = UDim2.new(1, -190, 1, -20), UDim2.fromOffset(190, 10), 1, 3
+local Header = New("Frame", {
+    Size = UDim2.new(1, 0, 0, 60), BackgroundTransparency = 1, Active = true,
+}, Content)
+local TabTitle = Label(Header, "Home", 22, Colors.Text, F_BOLD, UDim2.fromOffset(22, 0), UDim2.new(1, -120, 1, 0))
+local hLine = New("Frame", {
+    Size = UDim2.new(1, -32, 0, 2), Position = UDim2.fromOffset(16, 60), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0,
+}, Content)
+Corner(hLine, 1)
+New("UIGradient", {
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Colors.Accent), ColorSequenceKeypoint.new(0.5, Colors.Purple), ColorSequenceKeypoint.new(1, Colors.Accent),
+    }),
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 0.9),
+    }),
+}, hLine)
 
-local TabTitle = Instance.new("TextLabel", Content)
-TabTitle.Size, TabTitle.BackgroundTransparency, TabTitle.Text = UDim2.new(1, -80, 0, 32), 1, "Home"
-TabTitle.Font, TabTitle.TextSize, TabTitle.TextColor3, TabTitle.TextXAlignment = Enum.Font.GothamBold, 20, Colors.Text, Enum.TextXAlignment.Left
-TabTitle.ZIndex = 5
+local Scroll = New("ScrollingFrame", {
+    Size = UDim2.new(1, -32, 1, -84), Position = UDim2.fromOffset(16, 72),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
+    ScrollBarImageColor3 = Colors.Accent, CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+}, Content)
+New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, Scroll)
+New("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 10) }, Scroll)
 
-local TitleDivider = Instance.new("Frame", Content)
-TitleDivider.Size, TitleDivider.Position, TitleDivider.BackgroundColor3, TitleDivider.BorderSizePixel, TitleDivider.BackgroundTransparency = UDim2.new(1, 0, 0, 2), UDim2.fromOffset(0, 36), Colors.Accent, 0, 0.5
-
-local Scroll = Instance.new("ScrollingFrame", Content)
-Scroll.Size, Scroll.Position, Scroll.BackgroundTransparency, Scroll.BorderSizePixel = UDim2.new(1, 0, 1, -50), UDim2.fromOffset(0, 45), 1, 0
-Scroll.ScrollBarThickness, Scroll.ScrollBarImageColor3 = 4, Colors.Accent
-Scroll.CanvasSize, Scroll.AutomaticCanvasSize, Scroll.ZIndex = UDim2.new(0, 0, 0, 0), Enum.AutomaticSize.Y, 4
-local ContentLayout = Instance.new("UIListLayout", Scroll)
-ContentLayout.Padding, ContentLayout.SortOrder = UDim.new(0, 8), Enum.SortOrder.LayoutOrder
+-- ═══════════════════════════════════════════════════════════════════════
+-- PÁGINAS (limpeza, conexões por página)
+-- ═══════════════════════════════════════════════════════════════════════
+local PageConns = {}
+local order = 0
+local function NextOrder() order += 1 return order end
 
 Z.GUI = { Hub = Hub, Main = Main, Sidebar = Sidebar, Scroll = Scroll, Content = Content, TabTitle = TabTitle }
-function Z.GUI.Clear() for _, v in ipairs(Scroll:GetChildren()) do if not v:IsA("UIListLayout") then v:Destroy() end end end
 
-local function TopBtn(icon, color, offset)
-    local b = Instance.new("TextButton", Main)
-    b.Size, b.Position, b.Text, b.Font, b.TextSize, b.TextColor3, b.BackgroundColor3, b.BorderSizePixel, b.AutoButtonColor, b.ZIndex = UDim2.fromOffset(28, 28), UDim2.new(1, offset, 0, 10), icon, Enum.Font.GothamBold, 14, Colors.Text, color, 0, false, 10
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
-    b.MouseEnter:Connect(function() TweenService:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = color:Lerp(Color3.new(1,1,1), 0.3)}):Play() end)
-    b.MouseLeave:Connect(function() TweenService:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = color}):Play() end)
-    return b
+function Z.GUI.Clear()
+    Z.PageGen += 1
+    for _, c in ipairs(PageConns) do pcall(function() c:Disconnect() end) end
+    table.clear(PageConns)
+    for k in pairs(Z.UI) do Z.UI[k] = nil end
+    for _, v in ipairs(Scroll:GetChildren()) do
+        if not (v:IsA("UIListLayout") or v:IsA("UIPadding")) then v:Destroy() end
+    end
+    Scroll.CanvasPosition = Vector2.zero
+    Scroll.ScrollingEnabled = true
+    order = 0
 end
-local MinBtn, CloseBtn = TopBtn("─", Colors.Card, -76), TopBtn("✕", Colors.Danger, -40)
+function Z.PageTrack(conn) table.insert(PageConns, conn) return conn end
+function Z.PageLoop(interval, fn)
+    local gen = Z.PageGen
+    task.spawn(function()
+        while Z.Alive and Z.PageGen == gen do
+            local ok, err = pcall(fn)
+            if not ok then warn("[Zuni] PageLoop: " .. tostring(err)) end
+            task.wait(interval)
+        end
+    end)
+end
 
-function Z.ShowHub()
-    Shadow.Visible, Main.Visible, Main.Size, Main.BackgroundTransparency, Sidebar.BackgroundTransparency, Shadow.BackgroundTransparency = true, true, UDim2.fromOffset(0, 0), 1, 1, 1
-    TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(650, 480), BackgroundTransparency = 0}):Play()
-    TweenService:Create(Sidebar, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {BackgroundTransparency = 0}):Play()
-    TweenService:Create(Shadow, TweenInfo.new(0.35), {BackgroundTransparency = 0.5}):Play()
+-- ═══════════════════════════════════════════════════════════════════════
+-- WIDGETS
+-- ═══════════════════════════════════════════════════════════════════════
+local function Card(height)
+    local f = New("Frame", {
+        Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = Colors.Card, BorderSizePixel = 0, LayoutOrder = NextOrder(),
+    }, Scroll)
+    Corner(f, 10)
+    local st = Stroke(f, Colors.Border, 1, 0.6)
+    return f, st
 end
-
-function Z.HideHub(cb)
-    TweenService:Create(Main, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.fromOffset(0, 0), BackgroundTransparency = 1}):Play()
-    TweenService:Create(Sidebar, TweenInfo.new(0.22), {BackgroundTransparency = 1}):Play()
-    local t = TweenService:Create(Shadow, TweenInfo.new(0.22), {BackgroundTransparency = 1})
-    t:Play()
-    t.Completed:Connect(function() Shadow.Visible, Main.Visible, Main.Size = false, false, UDim2.fromOffset(650, 480) if cb then cb() end end)
-end
+Z.Card = Card
 
 function Z.Sep(text)
-    local f = Instance.new("Frame", Scroll)
-    f.Size, f.BackgroundTransparency, f.BorderSizePixel = UDim2.new(1, 0, 0, 28), 1, 0
-    local line = Instance.new("Frame", f)
-    line.Size, line.Position, line.BackgroundColor3, line.BorderSizePixel = UDim2.new(1, 0, 0, 1), UDim2.new(0, 0, 0.5, 0), Colors.Divider, 0
-    local lbl = Instance.new("TextLabel", f)
-    lbl.Size, lbl.Position, lbl.BackgroundColor3, lbl.BorderSizePixel, lbl.Text = UDim2.new(0, 200, 1, 0), UDim2.new(0.5, -100, 0, 0), Colors.Bg, 0, text
-    lbl.Font, lbl.TextSize, lbl.TextColor3 = Enum.Font.GothamBold, 10, Colors.AccentLight
+    local f = New("Frame", { Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, LayoutOrder = NextOrder() }, Scroll)
+    Corner(New("Frame", { Size = UDim2.fromOffset(3, 16), Position = UDim2.fromOffset(2, 13), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0 }, f), 2)
+    Label(f, text, 13, Colors.AccentLight, F_BOLD, UDim2.fromOffset(14, 10), UDim2.new(1, -14, 0, 22))
+    return f
 end
 
 function Z.Info(text)
-    local l = Instance.new("TextLabel", Scroll)
-    l.Size, l.BackgroundTransparency, l.Text = UDim2.new(1, 0, 0, 16), 1, text
-    l.Font, l.TextSize, l.TextColor3, l.TextXAlignment = Enum.Font.Gotham, 9, Colors.TextMuted, Enum.TextXAlignment.Left
+    local l = New("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+        Text = text, Font = F_REG, TextSize = 13, TextColor3 = Colors.TextDim, TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = NextOrder(),
+    }, Scroll)
+    New("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4), PaddingBottom = UDim.new(0, 2) }, l)
+    return l
 end
 
-function Z.Toggle(name, defaultState, callback)
-    local f = Instance.new("Frame", Scroll)
-    f.Size, f.BackgroundColor3, f.BorderSizePixel = UDim2.new(1, 0, 0, 42), Colors.Card, 0
-    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
-    local stroke = Instance.new("UIStroke", f)
-    stroke.Color, stroke.Transparency = Colors.Border, 0.5
-    local lbl = Instance.new("TextLabel", f)
-    lbl.Size, lbl.Position, lbl.BackgroundTransparency, lbl.Text = UDim2.new(1, -60, 1, 0), UDim2.fromOffset(14, 0), 1, name
-    lbl.Font, lbl.TextSize, lbl.TextColor3, lbl.TextXAlignment = Enum.Font.GothamBold, 11, Colors.Text, Enum.TextXAlignment.Left
-    local box = Instance.new("Frame", f)
-    box.Size, box.Position, box.BackgroundColor3, box.BorderSizePixel = UDim2.fromOffset(34, 18), UDim2.new(1, -48, 0.5, -9), defaultState and Colors.Accent or Colors.CardHover, 0
-    Instance.new("UICorner", box).CornerRadius = UDim.new(1, 0)
-    local knob = Instance.new("Frame", box)
-    knob.Size, knob.Position, knob.BackgroundColor3, knob.BorderSizePixel = UDim2.fromOffset(14, 14), UDim2.new(0, defaultState and 18 or 2, 0.5, -7), Colors.Text, 0
-    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
-    local click = Instance.new("TextButton", f)
-    click.Size, click.BackgroundTransparency, click.Text = UDim2.new(1, 0, 1, 0), 1, ""
-    local state = defaultState
-    local function updateVisual(v)
-        TweenService:Create(box, TweenInfo.new(0.15), {BackgroundColor3 = v and Colors.Accent or Colors.CardHover}):Play()
-        TweenService:Create(knob, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0, v and 18 or 2, 0.5, -7)}):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.2), {Color = v and Colors.Accent or Colors.Border, Transparency = v and 0.2 or 0.5}):Play()
+function Z.Stat(name, value)
+    local card = Card(42)
+    Label(card, name, 13, Colors.TextDim, F_MED, UDim2.fromOffset(16, 0), UDim2.new(0.5, -16, 1, 0))
+    local v = Label(card, tostring(value), 14, Colors.Text, F_BOLD, UDim2.fromScale(0.5, 0), UDim2.new(0.5, -16, 1, 0), Enum.TextXAlignment.Right)
+    return {
+        Frame = card,
+        Set = function(text, color)
+            if not v.Parent then return end
+            v.Text = tostring(text)
+            if color then v.TextColor3 = color end
+        end,
+    }
+end
+
+function Z.Toggle(name, default, callback, desc)
+    local card, st = Card(desc and 62 or 50)
+    local state = not not default
+    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(16, desc and 10 or 0), UDim2.new(1, -96, 0, desc and 20 or 50))
+    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(16, 33), UDim2.new(1, -96, 0, 20)) end
+
+    local track = New("Frame", {
+        Size = UDim2.fromOffset(46, 24), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -16, 0.5, 0),
+        BackgroundColor3 = Colors.CardHover, BorderSizePixel = 0,
+    }, card)
+    Corner(track, 12)
+    local knob = New("Frame", {
+        Size = UDim2.fromOffset(18, 18), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0),
+        BackgroundColor3 = Colors.Text, BorderSizePixel = 0,
+    }, track)
+    Corner(knob, 9)
+
+    local function render(v, animate)
+        if not card.Parent then return end
+        local t = animate and 0.15 or 0
+        Tween(track, t, { BackgroundColor3 = v and Colors.Accent or Colors.CardHover })
+        Tween(knob, t, { Position = UDim2.new(0, v and 25 or 3, 0.5, 0) }, Enum.EasingStyle.Back)
+        Tween(st, t, { Color = v and Colors.Accent or Colors.Border, Transparency = v and 0.3 or 0.6 })
     end
-    click.MouseButton1Click:Connect(function() state = not state updateVisual(state) if callback then callback(state) end end)
-    f.SetState = function(v, silent) state = v updateVisual(v) if not silent and callback then callback(v) end end
-    return f
+    render(state, false)
+
+    local hit = New("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", AutoButtonColor = false }, card)
+    hit.MouseEnter:Connect(function() Tween(card, 0.12, { BackgroundColor3 = Colors.CardHover }) end)
+    hit.MouseLeave:Connect(function() Tween(card, 0.12, { BackgroundColor3 = Colors.Card }) end)
+    hit.MouseButton1Click:Connect(function()
+        state = not state
+        render(state, true)
+        Safe(callback, state)
+    end)
+
+    local obj = { Frame = card }
+    function obj.Set(v, silent)
+        v = not not v
+        if v == state then return end
+        state = v
+        render(v, true)
+        if not silent then Safe(callback, v) end
+    end
+    function obj.Get() return state end
+    obj.SetState = obj.Set
+    return obj
 end
 
-function Z.Slider(name, min, max, default, callback)
-    local f = Instance.new("Frame", Scroll)
-    f.Size, f.BackgroundColor3, f.BorderSizePixel = UDim2.new(1, 0, 0, 55), Colors.Card, 0
-    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
-    Instance.new("UIStroke", f).Color = Colors.Border
-    local lbl = Instance.new("TextLabel", f)
-    lbl.Size, lbl.Position, lbl.BackgroundTransparency, lbl.Text = UDim2.new(1, -20, 0, 18), UDim2.fromOffset(14, 8), 1, name
-    lbl.Font, lbl.TextSize, lbl.TextColor3, lbl.TextXAlignment = Enum.Font.GothamBold, 10, Colors.Text, Enum.TextXAlignment.Left
-    local valLbl = Instance.new("TextLabel", f)
-    valLbl.Size, valLbl.Position, valLbl.BackgroundTransparency, valLbl.Text = UDim2.new(0, 60, 0, 18), UDim2.new(1, -74, 0, 8), 1, tostring(default)
-    valLbl.Font, valLbl.TextSize, valLbl.TextColor3, valLbl.TextXAlignment = Enum.Font.GothamBold, 10, Colors.Accent, Enum.TextXAlignment.Right
-    local bar = Instance.new("Frame", f)
-    bar.Size, bar.Position, bar.BackgroundColor3, bar.BorderSizePixel = UDim2.new(1, -28, 0, 6), UDim2.fromOffset(14, 35), Colors.CardHover, 0
-    Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+function Z.Slider(name, min, max, default, callback, opts)
+    opts = opts or {}
+    local step, suffix = opts.step or 1, opts.suffix or ""
     local range = math.max(1e-6, max - min)
-    local fill = Instance.new("Frame", bar)
-    fill.Size, fill.BackgroundColor3, fill.BorderSizePixel = UDim2.fromScale((default - min) / range, 1), Colors.Accent, 0
-    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
-    local knob = Instance.new("Frame", bar)
-    knob.Size, knob.AnchorPoint, knob.Position, knob.BackgroundColor3, knob.BorderSizePixel = UDim2.fromOffset(14, 14), Vector2.new(0.5, 0.5), UDim2.fromScale(fill.Size.X.Scale, 0.5), Colors.Text, 0
-    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
-    Instance.new("UIStroke", knob).Color = Colors.Accent
-    local dragging = false
-    local function update(x)
-        local s = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
-        fill.Size, knob.Position = UDim2.fromScale(s, 1), UDim2.fromScale(s, 0.5)
-        local v = math.floor(min + range * s + 0.5)
-        valLbl.Text = tostring(v)
-        if callback then callback(v) end
+    local card = Card(68)
+
+    local function snap(v)
+        v = min + math.floor((v - min) / step + 0.5) * step
+        return math.clamp(v, min, max)
     end
-    bar.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = true; update(i.Position.X) end end)
-    knob.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = true end end)
-    UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end end)
-    UIS.InputChanged:Connect(function(i) if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then update(i.Position.X) end end)
-    return f
+    local function fmt(v)
+        if v == math.floor(v) then return tostring(v) end
+        return string.format("%.2f", v)
+    end
+    local value = snap(default or min)
+
+    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(16, 10), UDim2.new(1, -140, 0, 20))
+    local valLbl = Label(card, "", 14, Colors.Accent, F_BOLD, UDim2.new(1, -126, 0, 10), UDim2.fromOffset(110, 20), Enum.TextXAlignment.Right)
+
+    local track = New("Frame", {
+        Size = UDim2.new(1, -32, 0, 8), Position = UDim2.fromOffset(16, 46), BackgroundColor3 = Colors.CardHover, BorderSizePixel = 0,
+    }, card)
+    Corner(track, 4)
+    local fill = New("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0 }, track)
+    Corner(fill, 4)
+    New("UIGradient", { Color = ColorSequence.new(Colors.AccentDark, Colors.Accent) }, fill)
+    local knob = New("Frame", {
+        Size = UDim2.fromOffset(18, 18), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5),
+        BackgroundColor3 = Colors.Text, BorderSizePixel = 0, ZIndex = 2,
+    }, track)
+    Corner(knob, 9)
+    Stroke(knob, Colors.Accent, 2)
+
+    local function render()
+        local a = (value - min) / range
+        fill.Size = UDim2.fromScale(a, 1)
+        knob.Position = UDim2.fromScale(a, 0.5)
+        valLbl.Text = fmt(value) .. suffix
+    end
+    render()
+
+    local dragging = false
+    local function fromX(x)
+        local a = math.clamp((x - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1)
+        local v = snap(min + range * a)
+        if v ~= value then
+            value = v
+            render()
+            Safe(callback, v)
+        end
+    end
+    local hit = New("TextButton", {
+        Size = UDim2.new(1, -20, 0, 32), Position = UDim2.fromOffset(10, 34), BackgroundTransparency = 1, Text = "", AutoButtonColor = false,
+    }, card)
+    hit.InputBegan:Connect(function(i)
+        if IsPointer(i) then
+            dragging = true
+            Scroll.ScrollingEnabled = false
+            fromX(i.Position.X)
+        end
+    end)
+    Z.PageTrack(UIS.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            fromX(i.Position.X)
+        end
+    end))
+    Z.PageTrack(UIS.InputEnded:Connect(function(i)
+        if dragging and IsPointer(i) then
+            dragging = false
+            Scroll.ScrollingEnabled = true
+        end
+    end))
+
+    local obj = { Frame = card }
+    function obj.Set(v, silent)
+        v = snap(v)
+        if v == value then return end
+        value = v
+        render()
+        if not silent then Safe(callback, v) end
+    end
+    function obj.Get() return value end
+    return obj
 end
 
 function Z.Button(name, color, callback)
     color = color or Colors.Accent
-    local b = Instance.new("TextButton", Scroll)
-    b.Size, b.BackgroundColor3, b.Text, b.Font, b.TextSize, b.TextColor3, b.BorderSizePixel, b.AutoButtonColor = UDim2.new(1, 0, 0, 38), color, name, Enum.Font.GothamBold, 11, Colors.Text, 0, false
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
-    b.MouseEnter:Connect(function() TweenService:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = color:Lerp(Color3.new(1,1,1), 0.2)}):Play() end)
-    b.MouseLeave:Connect(function() TweenService:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = color}):Play() end)
-    b.MouseButton1Click:Connect(function() if callback then pcall(callback) end end)
+    local b = New("TextButton", {
+        Size = UDim2.new(1, 0, 0, 42), BackgroundColor3 = color, Text = name, Font = F_BOLD, TextSize = 14,
+        TextColor3 = Luma(color) > 0.62 and Color3.fromRGB(15, 16, 24) or Colors.Text,
+        BorderSizePixel = 0, AutoButtonColor = false, LayoutOrder = NextOrder(),
+    }, Scroll)
+    Corner(b, 10)
+    b.MouseEnter:Connect(function() Tween(b, 0.12, { BackgroundColor3 = color:Lerp(Color3.new(1, 1, 1), 0.15) }) end)
+    b.MouseLeave:Connect(function() Tween(b, 0.12, { BackgroundColor3 = color }) end)
+    b.MouseButton1Down:Connect(function() Tween(b, 0.08, { BackgroundColor3 = color:Lerp(Color3.new(0, 0, 0), 0.2) }) end)
+    b.MouseButton1Up:Connect(function() Tween(b, 0.08, { BackgroundColor3 = color:Lerp(Color3.new(1, 1, 1), 0.15) }) end)
+    b.MouseButton1Click:Connect(function() Safe(callback) end)
     return b
 end
 
-local activeTab = nil
-function Z.AddTab(name, icon, callback)
-    local btn = Instance.new("TextButton", TabsScroll)
-    btn.Size, btn.BackgroundColor3, btn.BorderSizePixel, btn.AutoButtonColor = UDim2.new(1, 0, 0, 40), Colors.Card, 0, false
-    btn.Text, btn.Font, btn.TextSize, btn.TextColor3, btn.TextXAlignment = "  " .. icon .. "  " .. name, Enum.Font.GothamBold, 11, Colors.TextDim, Enum.TextXAlignment.Left
-    btn.ZIndex = 6
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-    local indicator = Instance.new("Frame", btn)
-    indicator.Size, indicator.Position, indicator.BackgroundColor3, indicator.BackgroundTransparency, indicator.BorderSizePixel = UDim2.fromOffset(3, 20), UDim2.fromOffset(3, 10), Colors.Accent, 1, 0
-    Instance.new("UICorner", indicator).CornerRadius = UDim.new(1, 0)
-    btn.MouseEnter:Connect(function() if activeTab ~= btn then TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Colors.CardHover}):Play() end end)
-    btn.MouseLeave:Connect(function() if activeTab ~= btn then TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Colors.Card}):Play() end end)
-    btn.MouseButton1Click:Connect(function()
-        if activeTab == btn then return end
-        if activeTab then
-            local oldInd = activeTab:FindFirstChild("Frame")
-            if oldInd then TweenService:Create(oldInd, TweenInfo.new(0.2), {BackgroundTransparency = 1}):Play() end
-            TweenService:Create(activeTab, TweenInfo.new(0.2), {BackgroundColor3 = Colors.Card, TextColor3 = Colors.TextDim}):Play()
+-- ═══════════════════════════════════════════════════════════════════════
+-- ARRASTAR
+-- ═══════════════════════════════════════════════════════════════════════
+local function MakeDraggable(handle, target, onClick, clampFn)
+    local dragging, moved, origin, startPos = false, false, nil, nil
+    handle.InputBegan:Connect(function(i)
+        if IsPointer(i) then
+            dragging, moved = true, false
+            origin, startPos = i.Position, target.Position
         end
-        activeTab = btn
-        TweenService:Create(indicator, TweenInfo.new(0.2), {BackgroundTransparency = 0}):Play()
-        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Colors.AccentDark, TextColor3 = Colors.Text}):Play()
-        if callback then pcall(callback) end
     end)
-    return btn
+    Z.Track(UIS.InputChanged:Connect(function(i)
+        if not dragging then return end
+        if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
+            local d = i.Position - origin
+            if not moved and d.Magnitude > 6 then moved = true end
+            if moved then
+                local x, y = startPos.X.Offset + d.X, startPos.Y.Offset + d.Y
+                if clampFn then x, y = clampFn(x, y) end
+                target.Position = UDim2.new(startPos.X.Scale, x, startPos.Y.Scale, y)
+            end
+        end
+    end))
+    Z.Track(UIS.InputEnded:Connect(function(i)
+        if dragging and IsPointer(i) then
+            dragging = false
+            if not moved and onClick then Safe(onClick) end
+        end
+    end))
 end
 
-local isMini, Bubble = false, nil
-MinBtn.MouseButton1Click:Connect(function()
-    if isMini then return end
-    isMini = true
-    Z.HideHub(function()
-        Bubble = Instance.new("TextButton", Hub)
-        Bubble.AnchorPoint, Bubble.Position, Bubble.Size, Bubble.Text, Bubble.Font, Bubble.TextSize, Bubble.TextColor3, Bubble.BackgroundColor3, Bubble.AutoButtonColor, Bubble.BorderSizePixel, Bubble.ZIndex = Vector2.new(0.5, 0.5), UDim2.new(0.85, 0, 0.85, 0), UDim2.fromOffset(0, 0), "Z", Enum.Font.GothamBlack, 22, Colors.Text, Colors.Accent, false, 0, 100
-        Instance.new("UICorner", Bubble).CornerRadius = UDim.new(1, 0)
-        local s = Instance.new("UIStroke", Bubble); s.Color, s.Thickness = Colors.AccentLight, 2
-        TweenService:Create(Bubble, TweenInfo.new(0.35, Enum.EasingStyle.Back), {Size = UDim2.fromOffset(58, 58)}):Play()
-        Bubble.MouseButton1Click:Connect(function()
-            TweenService:Create(Bubble, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Size = UDim2.fromOffset(0, 0)}):Play()
-            task.delay(0.2, function() if Bubble then Bubble:Destroy(); Bubble = nil; isMini = false; Z.ShowHub() end end)
+local function ClampMain(x, y)
+    local vp = Viewport()
+    local mx, my = vp.X / 2 - 80, vp.Y / 2 - 40
+    return math.clamp(x, -mx, mx), math.clamp(y, -my, my)
+end
+MakeDraggable(Header, Main, nil, ClampMain)
+MakeDraggable(LogoCard, Main, nil, ClampMain)
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- BOLHA (janela minimizada) + MOSTRAR / ESCONDER
+-- ═══════════════════════════════════════════════════════════════════════
+local Bubble = New("TextButton", {
+    Size = UDim2.fromOffset(56, 56), Position = UDim2.new(1, -90, 1, -130), Text = "Z",
+    Font = F_BLACK, TextSize = 24, TextColor3 = Colors.Text, BackgroundColor3 = Colors.Accent,
+    AutoButtonColor = false, BorderSizePixel = 0, Visible = false, ZIndex = 50,
+}, Hub)
+Corner(Bubble, 28)
+Stroke(Bubble, Colors.AccentLight, 2, 0.2)
+New("UIGradient", { Color = ColorSequence.new(Colors.Accent, Colors.Purple), Rotation = 45 }, Bubble)
+
+local animToken = 0
+function Z.SetVisible(v)
+    if not Z.Alive then return end
+    v = not not v
+    if v == Z.IsVisible then return end
+    Z.IsVisible = v
+    animToken += 1
+    local my = animToken
+    if v then
+        Bubble.Visible = false
+        WinScale.Scale = 0.6
+        Main.Visible = true
+        Tween(WinScale, 0.3, { Scale = TargetScale() }, Enum.EasingStyle.Back)
+    else
+        Tween(WinScale, 0.2, { Scale = 0.01 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        task.delay(0.21, function()
+            if animToken == my and Z.Alive then
+                Main.Visible = false
+                Bubble.Visible = true
+            end
         end)
+    end
+end
+function Z.ToggleVisible() Z.SetVisible(not Z.IsVisible) end
+MakeDraggable(Bubble, Bubble, function() Z.SetVisible(true) end)
+
+-- Botões do cabeçalho
+local function HeaderBtn(text, color, xOff, cb)
+    local b = New("TextButton", {
+        Size = UDim2.fromOffset(32, 32), Position = UDim2.new(1, xOff, 0, 14), BackgroundColor3 = color, Text = text,
+        Font = F_BOLD, TextSize = 15, TextColor3 = Colors.Text, AutoButtonColor = false, BorderSizePixel = 0,
+    }, Header)
+    Corner(b, 8)
+    b.MouseEnter:Connect(function() Tween(b, 0.12, { BackgroundColor3 = color:Lerp(Color3.new(1, 1, 1), 0.2) }) end)
+    b.MouseLeave:Connect(function() Tween(b, 0.12, { BackgroundColor3 = color }) end)
+    b.MouseButton1Click:Connect(function() Safe(cb) end)
+    return b
+end
+HeaderBtn("–", Colors.CardHover, -84, function() Z.SetVisible(false) end)
+HeaderBtn("✕", Colors.Danger, -46, function() Z.Destroy() end)
+
+-- Atalhos de teclado
+Z.Track(UIS.InputBegan:Connect(function(input, gpe)
+    if gpe or not Z.Alive then return end
+    if input.KeyCode == Enum.KeyCode.Insert or input.KeyCode == Enum.KeyCode.RightControl then
+        Z.ToggleVisible()
+    end
+end))
+Z.Track(RunService.Heartbeat:Connect(function(dt)
+    if dt > 0 then Z.FPS = Z.FPS * 0.92 + (1 / dt) * 0.08 end
+end))
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABAS
+-- ═══════════════════════════════════════════════════════════════════════
+local function StyleTab(tab, active)
+    Tween(tab.Button, 0.18, { BackgroundTransparency = active and 0 or 1, BackgroundColor3 = active and Colors.AccentDark or Colors.Card })
+    Tween(tab.Bar, 0.18, { BackgroundTransparency = active and 0 or 1 })
+    Tween(tab.Icon, 0.18, { TextColor3 = active and Colors.Text or Colors.TextDim })
+    Tween(tab.Label, 0.18, { TextColor3 = active and Colors.Text or Colors.TextDim })
+end
+
+function Z.AddTab(name, icon, callback)
+    local existing = Z.Tabs[name]
+    if existing then existing.Callback = callback return existing end
+
+    local btn = New("TextButton", {
+        Size = UDim2.new(1, 0, 0, 42), BackgroundColor3 = Colors.Card, BackgroundTransparency = 1, BorderSizePixel = 0,
+        AutoButtonColor = false, Text = "", LayoutOrder = #Z.TabOrder + 1,
+    }, TabsScroll)
+    Corner(btn, 10)
+    local bar = New("Frame", {
+        Size = UDim2.fromOffset(4, 20), Position = UDim2.new(0, 0, 0.5, -10), BackgroundColor3 = Colors.Accent,
+        BackgroundTransparency = 1, BorderSizePixel = 0,
+    }, btn)
+    Corner(bar, 2)
+    local ic = Label(btn, icon, 18, Colors.TextDim, F_REG, UDim2.fromOffset(14, 0), UDim2.fromOffset(28, 42), Enum.TextXAlignment.Center)
+    local nm = Label(btn, name, 14, Colors.TextDim, F_BOLD, UDim2.fromOffset(50, 0), UDim2.new(1, -56, 1, 0))
+
+    local tab = { Name = name, Icon = ic, Label = nm, Button = btn, Bar = bar, Callback = callback, IconText = icon }
+    Z.Tabs[name] = tab
+    table.insert(Z.TabOrder, name)
+
+    btn.MouseEnter:Connect(function()
+        if Z.CurrentTab ~= name then Tween(btn, 0.12, { BackgroundTransparency = 0.5 }) end
     end)
-end)
+    btn.MouseLeave:Connect(function()
+        if Z.CurrentTab ~= name then Tween(btn, 0.12, { BackgroundTransparency = 1 }) end
+    end)
+    btn.MouseButton1Click:Connect(function() Z.SelectTab(name) end)
+    return tab
+end
 
-CloseBtn.MouseButton1Click:Connect(function()
-    Z.Alive = false
-    Hub:Destroy()
-    NotifyGui:Destroy()
-end)
+function Z.SelectTab(name)
+    local tab = Z.Tabs[name]
+    if not tab then return end
+    local old = Z.Tabs[Z.CurrentTab]
+    if old and old ~= tab then StyleTab(old, false) end
+    Z.CurrentTab = name
+    StyleTab(tab, true)
+    TabTitle.Text = tab.IconText .. "  " .. name
 
-UIS.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
-    if input.KeyCode == Enum.KeyCode.Insert then
-        if isMini and Bubble then
-            TweenService:Create(Bubble, TweenInfo.new(0.2), {Size = UDim2.fromOffset(0, 0)}):Play()
-            task.delay(0.2, function() if Bubble then Bubble:Destroy(); Bubble = nil; isMini = false; Z.ShowHub() end end)
-        elseif not Main.Visible then
-            Z.ShowHub()
-        elseif Main.Visible then
-            isMini = true
-            Z.HideHub(function()
-                Bubble = Instance.new("TextButton", Hub)
-                Bubble.AnchorPoint, Bubble.Position, Bubble.Size, Bubble.Text, Bubble.Font, Bubble.TextSize, Bubble.TextColor3, Bubble.BackgroundColor3, Bubble.AutoButtonColor, Bubble.BorderSizePixel, Bubble.ZIndex = Vector2.new(0.5, 0.5), UDim2.new(0.85, 0, 0.85, 0), UDim2.fromOffset(58, 58), "Z", Enum.Font.GothamBlack, 22, Colors.Text, Colors.Accent, false, 0, 100
-                Instance.new("UICorner", Bubble).CornerRadius = UDim.new(1, 0)
-                local s = Instance.new("UIStroke", Bubble); s.Color, s.Thickness = Colors.AccentLight, 2
-                Bubble.MouseButton1Click:Connect(function() Bubble:Destroy(); Bubble = nil; isMini = false; Z.ShowHub() end)
-            end)
+    Z.GUI.Clear()
+    if tab.Callback then
+        local ok, err = xpcall(tab.Callback, function(e)
+            warn("[Zuni] Erro na aba '" .. name .. "': " .. tostring(e) .. "\n" .. debug.traceback())
+            return tostring(e)
+        end)
+        if not ok then
+            Z.Info("⚠ Erro ao carregar esta aba:")
+            Z.Info(tostring(err))
         end
     end
-end)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ENCERRAR
+-- ═══════════════════════════════════════════════════════════════════════
+function Z.Destroy()
+    if not Z.Alive then return end
+    Z.Alive = false
+    pcall(function()
+        local c = Player.Character
+        local hum = c and c:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if S.speedOn then hum.WalkSpeed = 16 end
+            if S.jumpOn then hum.JumpPower = 50 end
+        end
+    end)
+    Z.DisconnectAll()
+    for _, c in ipairs(PageConns) do pcall(function() c:Disconnect() end) end
+    pcall(function() Hub:Destroy() end)
+    pcall(function() NotifyGui:Destroy() end)
+    if _G.ZuniHub == Z then _G.ZuniHub = nil end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- FUNÇÕES DO PLAYER (rodam sempre, independente da aba aberta)
+-- ═══════════════════════════════════════════════════════════════════════
+local function Def(k, v) if S[k] == nil then S[k] = v end end
+Def("speedOn", false) Def("walkSpeed", 16)
+Def("jumpOn", false)  Def("jumpPower", 50)
+Def("infJump", false) Def("antiAfk", true)
+
+local function GetHum()
+    local c = Player.Character
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+
+Z.Track(RunService.Heartbeat:Connect(function()
+    local hum = GetHum()
+    if not hum then return end
+    if S.speedOn and hum.WalkSpeed ~= S.walkSpeed then hum.WalkSpeed = S.walkSpeed end
+    if S.jumpOn then
+        if not hum.UseJumpPower then hum.UseJumpPower = true end
+        if hum.JumpPower ~= S.jumpPower then hum.JumpPower = S.jumpPower end
+    end
+end))
+Z.Track(UIS.JumpRequest:Connect(function()
+    if not S.infJump then return end
+    local hum = GetHum()
+    if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+end))
+Z.Track(Player.Idled:Connect(function()
+    if not S.antiAfk then return end
+    pcall(function()
+        local vu = game:GetService("VirtualUser")
+        vu:CaptureController()
+        vu:ClickButton2(Vector2.new())
+    end)
+end))
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA HOME
+-- ═══════════════════════════════════════════════════════════════════════
+local function FmtTime(sec)
+    sec = math.floor(sec)
+    return string.format("%02d:%02d:%02d", sec // 3600, (sec % 3600) // 60, sec % 60)
+end
 
 local function LoadHome()
-    Z.GUI.Clear()
-    Z.GUI.TabTitle.Text = "🏠 Home"
-    local card = Instance.new("Frame", Scroll)
-    card.Size, card.BackgroundColor3, card.BorderSizePixel = UDim2.new(1, 0, 0, 120), Colors.Card, 0
-    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
-    Instance.new("UIStroke", card).Color = Colors.Border
-    local title = Instance.new("TextLabel", card)
-    title.Size, title.Position, title.BackgroundTransparency = UDim2.new(1, -20, 0, 30), UDim2.fromOffset(10, 10), 1
-    title.Text, title.Font, title.TextSize, title.TextColor3, title.TextXAlignment = "Bem-vindo ao Zuni Hub", Enum.Font.GothamBold, 16, Colors.Text, Enum.TextXAlignment.Left
-    local desc = Instance.new("TextLabel", card)
-    desc.Size, desc.Position, desc.BackgroundTransparency, desc.Text = UDim2.new(1, -20, 0, 70), UDim2.fromOffset(10, 40), 1, "O melhor hub multi-jogo.\nSelecione uma aba ao lado para começar.\nUse INSERT para esconder/mostrar a interface."
-    desc.Font, desc.TextSize, desc.TextColor3, desc.TextXAlignment, desc.TextWrapped = Enum.Font.Gotham, 10, Colors.TextDim, Enum.TextXAlignment.Left, true
+    local hero = Card(96)
+    local stripe = New("Frame", {
+        Size = UDim2.new(0, 4, 1, -24), Position = UDim2.fromOffset(10, 12), BackgroundColor3 = Colors.Accent, BorderSizePixel = 0,
+    }, hero)
+    Corner(stripe, 2)
+    New("UIGradient", { Color = ColorSequence.new(Colors.Accent, Colors.Purple), Rotation = 90 }, stripe)
+    Label(hero, "Bem-vindo, " .. Player.DisplayName, 20, Colors.Text, F_BOLD, UDim2.fromOffset(26, 12), UDim2.new(1, -40, 0, 28))
+    New("TextLabel", {
+        BackgroundTransparency = 1, Font = F_REG, TextSize = 13, TextColor3 = Colors.TextDim, TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+        Text = "Escolha uma aba ao lado para começar. Minimize com – para virar uma bolha arrastável.",
+        Position = UDim2.fromOffset(26, 44), Size = UDim2.new(1, -40, 0, 40),
+    }, hero)
+
+    Z.Sep("📊  INFORMAÇÕES")
+    Z.Stat("Jogador", Player.Name)
+    local stGame = Z.Stat("Jogo", tostring(game.PlaceId))
+    Z.Stat("Módulo carregado", Z.ModuleName)
+    local stFps  = Z.Stat("FPS", "—")
+    local stPing = Z.Stat("Ping", "—")
+    local stTime = Z.Stat("Tempo de uso", "00:00:00")
+
+    task.spawn(function()
+        local ok, info = pcall(function() return MarketplaceService:GetProductInfo(game.PlaceId) end)
+        if ok and info and info.Name then stGame.Set(info.Name) end
+    end)
+    Z.PageLoop(0.5, function()
+        local fps = math.floor(Z.FPS + 0.5)
+        stFps.Set(fps, fps >= 50 and Colors.Success or (fps >= 30 and Colors.Warning or Colors.Danger))
+        local okp, ping = pcall(function() return Player:GetNetworkPing() * 1000 end)
+        if okp then
+            ping = math.floor(ping)
+            stPing.Set(ping .. " ms", ping <= 100 and Colors.Success or (ping <= 200 and Colors.Warning or Colors.Danger))
+        end
+        stTime.Set(FmtTime(tick() - Z.StartTime))
+    end)
+
+    Z.Sep("⌨️  ATALHOS")
+    Z.Info("INSERT ou RIGHT CTRL: mostrar / esconder o hub.\nArraste o topo da janela para mover. Use – para minimizar.")
 end
 
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA PLAYER
+-- ═══════════════════════════════════════════════════════════════════════
 local function LoadPlayer()
-    Z.GUI.Clear()
-    Z.GUI.TabTitle.Text = "👤 Player"
-    Z.Sep("🏃 Movimento")
-    Z.Slider("Walk Speed", 16, 200, S.walkSpeed or 16, function(v)
-        S.walkSpeed = v
-        local char = Player.Character
-        if char and char:FindFirstChildOfClass("Humanoid") then char:FindFirstChildOfClass("Humanoid").WalkSpeed = v end
+    Z.Sep("🏃  MOVIMENTO")
+    Z.Toggle("Velocidade personalizada", S.speedOn, function(v)
+        S.speedOn = v
+        if not v then local h = GetHum() if h then h.WalkSpeed = 16 end end
+    end, "Aplica o valor do controle abaixo")
+    Z.Slider("Velocidade (WalkSpeed)", 16, 250, S.walkSpeed, function(v) S.walkSpeed = v end)
+
+    Z.Toggle("Pulo personalizado", S.jumpOn, function(v)
+        S.jumpOn = v
+        if not v then local h = GetHum() if h then h.JumpPower = 50 end end
+    end, "Aplica o valor do controle abaixo")
+    Z.Slider("Força do pulo (JumpPower)", 50, 300, S.jumpPower, function(v) S.jumpPower = v end)
+
+    Z.Toggle("Pulo infinito", S.infJump, function(v) S.infJump = v end, "Pule no ar quantas vezes quiser")
+
+    Z.Sep("🛡️  UTILIDADES")
+    Z.Toggle("Anti-AFK", S.antiAfk, function(v) S.antiAfk = v end, "Evita ser kickado por ficar parado")
+
+    Z.Sep("🔧  AÇÕES")
+    Z.Button("↺  Resetar valores de movimento", Colors.AccentDark, function()
+        S.speedOn, S.jumpOn, S.infJump = false, false, false
+        S.walkSpeed, S.jumpPower = 16, 50
+        local h = GetHum()
+        if h then h.WalkSpeed, h.JumpPower = 16, 50 end
+        Z.Notify("Player", "Valores resetados.", Colors.Success, 2)
+        Z.SelectTab("Player")
     end)
-    Z.Slider("Jump Power", 50, 200, S.jumpPower or 50, function(v)
-        S.jumpPower = v
-        local char = Player.Character
-        if char and char:FindFirstChildOfClass("Humanoid") then char:FindFirstChildOfClass("Humanoid").JumpPower = v end
+    Z.Button("💀  Resetar personagem", Colors.Warning, function()
+        local h = GetHum()
+        if h then h.Health = 0 end
+    end)
+    Z.Button("🔁  Rejoin (reentrar no servidor)", Colors.Danger, function()
+        Z.Notify("Rejoin", "Reconectando...", Colors.Warning, 3)
+        pcall(function() TeleportService:Teleport(game.PlaceId, Player) end)
     end)
 end
 
+-- ═══════════════════════════════════════════════════════════════════════
+-- INICIAR
+-- ═══════════════════════════════════════════════════════════════════════
 Z.AddTab("Home", "🏠", LoadHome)
 Z.AddTab("Player", "👤", LoadPlayer)
-
-Z.ShowHub()
+Z.SelectTab("Home")
+Z.SetVisible(true)
 Z.Ready = true
-print("✅ Zuni Hub Base v4.1 Carregada.")
+print("✅ Zuni Hub Base v" .. Z.Version .. " carregada.")
