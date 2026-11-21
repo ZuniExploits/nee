@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v7.0                                        ║
--- ║  Grab rápido • Walk real • Auto Rewards • Skip / Pause Map         ║
+-- ║  ZUNI HUB - ETW MODULE v7.1                                        ║
+-- ║  Grab rápido • Walk real • Auto Rewards • Skip / Pause / Inf Map    ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -33,16 +33,17 @@ local GROUP_ID     = 10587104 -- grupo exigido pro giro (spin) das rewards
 local SKIP_MAPTIME = 0        -- valor de MapTime enviado no Skip Map
 
 local function Def(k, v) if S[k] == nil then S[k] = v end end
-Def("grabInterval", 150)        -- ms entre tentativas de Grab (quando sem chunk)
+Def("grabInterval", 150)
 Def("eatInterval", 300)
 Def("throwInterval", 500)
 Def("sellTimerInterval", 12000)
 Def("smartSellThreshold", 5)
-Def("walkInterval", 300)        -- pausa entre um destino e outro (ms)
+Def("walkInterval", 300)
 Def("walkRadius", 40)
+Def("walkSpeed", 30)            -- WalkSpeed aplicado enquanto o Auto Walk está ligado
 Def("rewardSpin", true)
-Def("skipInterval", 60)         -- segundos (Skip por tempo)
-Def("skipStuckTime", 15)        -- segundos sem conseguir pegar chunk
+Def("skipInterval", 60)
+Def("skipStuckTime", 15)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS DO JOGO
@@ -111,7 +112,6 @@ end
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- SISTEMA DE FEATURES
--- body() roda em loop e devolve quantos segundos esperar até a próxima volta
 -- ═══════════════════════════════════════════════════════════════════════
 local Features = {}
 
@@ -172,10 +172,11 @@ local function CountActive()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- MAPA: SKIP / PAUSE (SetServerSettings)
+-- MAPA: SKIP / PAUSE / INF MAP (SetServerSettings)
 -- ═══════════════════════════════════════════════════════════════════════
 local grabState = { failSince = nil }
 local lastSkip = 0
+local infMapApplied = false
 
 local function SkipMap(reason)
     local ev = GetEvent("SetServerSettings")
@@ -204,8 +205,7 @@ end
 -- FEATURES
 -- ═══════════════════════════════════════════════════════════════════════
 
--- Auto Grab: com chunk -> só confere rápido; sem chunk -> dispara Grab a cada intervalo.
--- (Antes esperava 0.35s e pausava 5s quando o servidor demorava; era isso que atrasava.)
+-- Auto Grab
 local function ResetGrab() grabState.failSince = nil end
 NewFeature("grab", "Auto Grab", function()
     if HasChunk() then
@@ -213,7 +213,7 @@ NewFeature("grab", "Auto Grab", function()
         return 0.1
     end
     if not grabState.failSince then grabState.failSince = tick() end
-    task.spawn(FireEvent, "Grab") -- não trava o loop se for RemoteFunction
+    task.spawn(FireEvent, "Grab")
     return S.grabInterval / 1000
 end, { onStart = ResetGrab, onStop = ResetGrab })
 
@@ -252,15 +252,23 @@ end, {
     onStart = function() smart.last, smart.stuck = -1, 0 end,
 })
 
--- Auto Walk: anda de verdade (Humanoid:MoveTo), espera CHEGAR no destino
--- antes de escolher outro, e pula se ficar preso.
+-- Auto Walk (MoveTo respeita WalkSpeed; aplicamos WalkSpeed ao iniciar)
 local function StopMoving()
     local hum, hrp = GetHum(), GetHRP()
     if hum and hrp then hum:MoveTo(hrp.Position) end
 end
+
+local function ApplyWalkSpeed()
+    local hum = GetHum()
+    if hum then hum.WalkSpeed = S.walkSpeed end
+end
+
 NewFeature("walk", "Auto Walk", function()
     local hrp, hum = GetHRP(), GetHum()
     if not (hrp and hum and hum.Health > 0) then return 0.5 end
+
+    -- Garante que o WalkSpeed escolhido está aplicado (MoveTo usa ele nativamente)
+    if hum.WalkSpeed ~= S.walkSpeed then hum.WalkSpeed = S.walkSpeed end
 
     local target = RandomWalkablePos(hrp.Position, S.walkRadius)
     if not target then return 0.5 end
@@ -274,14 +282,14 @@ NewFeature("walk", "Auto Walk", function()
         local flat = Vector3.new(target.X - hrp.Position.X, 0, target.Z - hrp.Position.Z).Magnitude
         if flat < 4 then break end
         if tick() - lastCheck > 1 then
-            if (hrp.Position - lastPos).Magnitude < 1 then hum.Jump = true end -- preso
+            if (hrp.Position - lastPos).Magnitude < 1 then hum.Jump = true end
             lastPos, lastCheck = hrp.Position, tick()
         end
     end
     return S.walkInterval / 1000
-end, { onStop = StopMoving })
+end, { onStart = ApplyWalkSpeed, onStop = StopMoving })
 
--- Auto Redeem Rewards (igual ao script Rewards do jogo)
+-- Auto Redeem Rewards
 local rewardSent, lastSpin = {}, 0
 local RewardInfo = nil
 local groupOk, groupCheckedAt = false, -math.huge
@@ -308,7 +316,6 @@ local function InGroup()
 end
 
 NewFeature("rewards", "Auto Redeem Rewards", function()
-    -- Rewards por tempo (TimedRewards)
     local tr = Player:FindFirstChild("TimedRewards")
     local rewardEvent = GetEvent("RewardEvent")
     if tr and rewardEvent then
@@ -327,7 +334,6 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
         end
     end
 
-    -- Giro do grupo (exige estar no grupo)
     if S.rewardSpin and tick() - lastSpin > 8 then
         local info = GetRewardInfo()
         local stats = Player:FindFirstChild("Stats")
@@ -356,7 +362,7 @@ NewFeature("skipTimer", "Skip Map (Tempo)", function()
     return 0.5
 end, { onStart = function() skipNext = tick() + S.skipInterval end })
 
--- Skip Map quando não consegue pegar chunk (timer começa na 1ª tentativa sem sucesso)
+-- Skip Map quando não consegue pegar chunk
 NewFeature("skipStuck", "Skip Map (Sem Chunk)", function()
     local fs = grabState.failSince
     if fs and tick() - fs >= S.skipStuckTime and tick() - lastSkip > 3 then
@@ -364,6 +370,32 @@ NewFeature("skipStuck", "Skip Map (Sem Chunk)", function()
     end
     return 0.5
 end)
+
+-- Inf Map: aplica MapTime = 9999 uma única vez após o mapa resetar (MapTime == 0)
+NewFeature("infMap", "Inf Map", function()
+    local ss = GetServerSettings()
+    if not ss then return 1 end
+    local mapTime = ss:FindFirstChild("MapTime")
+    if not mapTime then return 1 end
+
+    -- Detecta reset: MapTime voltou para 0
+    if mapTime.Value == 0 then
+        infMapApplied = false
+    end
+
+    if not infMapApplied and mapTime.Value == 0 then
+        local ev = GetEvent("SetServerSettings")
+        if ev then
+            ev:FireServer({ MapTime = 9999 })
+            infMapApplied = true
+            Z.Notify("Inf Map", "MapTime definido para 9999.", C.Accent, 2)
+        end
+    end
+    return 0.5
+end, {
+    onStart = function() infMapApplied = false end,
+    onStop  = function() infMapApplied = false end,
+})
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- ABA MAIN
@@ -444,7 +476,9 @@ local function LoadMain()
 
     FeatureToggle("skipStuck", "Auto Skip Map (sem chunk)", "Pula se tentar pegar e não conseguir por X s")
     Z.Slider("Tempo sem pegar chunk", 3, 120, S.skipStuckTime, function(v) S.skipStuckTime = v end, { suffix = " s" })
-    Z.Info("O contador do 'sem chunk' só começa quando o Auto Grab tenta pegar e não pega nada. Precisa do Auto Grab ligado.")
+
+    FeatureToggle("infMap", "Inf Map", "Define MapTime = 9999 quando o mapa reseta")
+    Z.Info("Quando o mapa resetar (MapTime = 0), envia 9999 uma única vez. Precisa estar ligado.")
 
     -- COLETA --------------------------------------------------------------
     Z.Sep("🌾  COLETA — AUTO GRAB")
@@ -473,7 +507,8 @@ local function LoadMain()
     Z.Slider("Intervalo", 100, 3000, S.throwInterval, function(v) S.throwInterval = v end, { step = 50, suffix = " ms" })
 
     Z.Sep("🚶  MOVIMENTO — AUTO WALK")
-    FeatureToggle("walk", "Auto Walk", "Anda de verdade até pontos aleatórios do mapa")
+    FeatureToggle("walk", "Auto Walk", "Anda de verdade até pontos aleatórios (usa MoveTo + WalkSpeed)")
+    Z.Slider("WalkSpeed no walk", 16, 150, S.walkSpeed, function(v) S.walkSpeed = v end, { step = 2, suffix = " studs/s" })
     Z.Slider("Raio de caminhada", 20, 150, S.walkRadius, function(v) S.walkRadius = v end, { step = 5, suffix = " studs" })
     Z.Slider("Pausa entre destinos", 0, 3000, S.walkInterval, function(v) S.walkInterval = v end, { step = 50, suffix = " ms" })
 
@@ -507,5 +542,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v7.0 carregado!", C.Success, 3)
-print("⚡ ETW Module v7.0 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v7.1 carregado!", C.Success, 3)
+print("⚡ ETW Module v7.1 iniciado")
