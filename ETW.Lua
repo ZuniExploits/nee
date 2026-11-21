@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v7.5                                        ║
+-- ║  ZUNI HUB - ETW MODULE v7.6                                        ║
 -- ║  Walk contínuo • Grab anti-travamento • Rewards • Skip/Pause       ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -48,8 +48,8 @@ Def("autoPauseAfterSkip", true)
 Def("autoPauseDelay", 5)
 Def("grabWalkFallback", true)
 Def("grabWalkWait", 1.5)
-Def("grabStuckTime", 1.5)       -- segundos sem pegar chunk = travado, precisa mudar de posição
-Def("walkStuckTime", 2.0)       -- segundos sem se mover durante o Walk = travado, precisa mudar de destino
+Def("grabStuckTime", 1.5)
+Def("walkStuckTime", 2.0)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS DO JOGO
@@ -114,63 +114,6 @@ local function RandomWalkablePos(origin, radius)
         if pos then return pos end
     end
     return nil
-end
-
--- ═══════════════════════════════════════════════════════════════════════
--- UNSTUCK — TP para o chão dentro de Fragmentable
--- ═══════════════════════════════════════════════════════════════════════
-local function GetFragmentable()
-    local ws = workspace
-    local f = ws:FindFirstChild("Fragmentable")
-    if f then return f end
-    for _, v in ipairs(ws:GetDescendants()) do
-        if v.Name == "Fragmentable" then return v end
-    end
-    return nil
-end
-
-local function GetCenterOf(inst)
-    if inst:IsA("BasePart") then
-        return inst.Position
-    elseif inst:IsA("Model") then
-        local ok, cf = pcall(function() return inst:GetBoundingBox() end)
-        if ok and cf then return cf.Position end
-        local primary = inst.PrimaryPart
-        if primary then return primary.Position end
-        local ok2, pos = pcall(function() return inst:GetPivot().Position end)
-        if ok2 and pos then return pos end
-    end
-    return nil
-end
-
-local function Unstuck()
-    local frag = GetFragmentable()
-    if not frag then
-        Z.Notify("Unstuck", "Fragmentable não encontrado.", C.Warning, 3)
-        return false
-    end
-    local center = GetCenterOf(frag)
-    if not center then
-        Z.Notify("Unstuck", "Não consegui achar o centro do Fragmentable.", C.Warning, 3)
-        return false
-    end
-    local rp = RaycastParams.new()
-    rp.FilterType = Enum.RaycastFilterType.Exclude
-    if Player.Character then rp.FilterDescendantsInstances = { Player.Character } end
-    local hit = workspace:Raycast(center + Vector3.new(0, 2000, 0), Vector3.new(0, -4000, 0), rp)
-    local ground = hit and (hit.Position + Vector3.new(0, 4, 0)) or center
-    local hrp = GetHRP()
-    if not hrp then
-        Z.Notify("Unstuck", "HRP não encontrado.", C.Warning, 3)
-        return false
-    end
-    pcall(function()
-        hrp.CFrame = CFrame.new(ground)
-        hrp.Velocity = Vector3.zero
-        hrp.RotVelocity = Vector3.zero
-    end)
-    Z.Notify("Unstuck", "Teleportado para o chão do Fragmentable.", C.Success, 2)
-    return true
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -303,7 +246,6 @@ NewFeature("grab", "Auto Grab", function()
     local hrp = GetHRP()
     local pos = hrp and hrp.Position or nil
 
-    -- Se tem chunk, limpa tudo e retorna rápido
     if HasChunk() then
         grabState.failSince = nil
         grabState.stuckSince = nil
@@ -315,7 +257,6 @@ NewFeature("grab", "Auto Grab", function()
     local now = tick()
     if not grabState.failSince then grabState.failSince = now end
 
-    -- ── Anti-travamento: está parado no mesmo lugar e sem chunk ──
     if pos and grabState.lastPos then
         local moved = (pos - grabState.lastPos).Magnitude
         if moved < 0.5 then
@@ -326,16 +267,13 @@ NewFeature("grab", "Auto Grab", function()
     end
     grabState.lastPos = pos
 
-    -- Se está travado há mais de grabStuckTime, força mudança de posição
     if grabState.stuckSince and (now - grabState.stuckSince) >= S.grabStuckTime then
-        -- Tenta ativar walk temporário (que vai mudar a posição)
         if S.grabWalkFallback and not grabFallback.walking then
             StartTempWalk()
             task.delay(math.max(0.2, S.grabWalkWait), function()
                 if grabFallback.walking then StopTempWalk() end
             end)
         else
-            -- Fallback extra: teleporta para um ponto aleatório próximo
             if pos then
                 local target = RandomWalkablePos(pos, S.walkRadius)
                 if target and hrp then
@@ -347,7 +285,6 @@ NewFeature("grab", "Auto Grab", function()
         grabState.lastPos = nil
     end
 
-    -- Tenta pegar
     task.spawn(FireEvent, "Grab")
     return S.grabInterval / 1000
 end, { onStart = ResetGrab, onStop = ResetGrab })
@@ -417,13 +354,11 @@ NewFeature("walk", "Auto Walk", function()
     local hrp, hum = GetHRP(), GetHum()
     if not (hrp and hum and hum.Health > 0) then return 0.3 end
 
-    -- Garante WalkSpeed correto
     if hum.WalkSpeed ~= S.walkSpeed then hum.WalkSpeed = S.walkSpeed end
 
     local now = tick()
     local pos = hrp.Position
 
-    -- ── Detecção de travamento ──
     if walkState.lastPos then
         local moved = (pos - walkState.lastPos).Magnitude
         if moved < 0.5 then
@@ -434,7 +369,6 @@ NewFeature("walk", "Auto Walk", function()
     end
     walkState.lastPos = pos
 
-    -- Se travou, pula e tenta outro destino
     if walkState.stuckSince and (now - walkState.stuckSince) >= S.walkStuckTime then
         hum.Jump = true
         walkState.target = nil
@@ -443,19 +377,14 @@ NewFeature("walk", "Auto Walk", function()
         return 0.2
     end
 
-    -- ── Se não tem destino, escolhe um ──
     if not walkState.target then
         walkState.target = RandomWalkablePos(pos, S.walkRadius)
         if not walkState.target then return 0.5 end
         walkState.lastMoveAt = now
     end
 
-    -- ── MoveTo CONTÍNUO (a cada ~0.25s) ──
-    -- Em vez de esperar chegar, reenvia o MoveTo periodicamente
-    -- para garantir que o Humanoid está sempre tentando ir para o destino.
     hum:MoveTo(walkState.target)
 
-    -- Se chegou perto do destino (flat distance < 5), escolhe outro
     local flat = Vector3.new(walkState.target.X - pos.X, 0, walkState.target.Z - pos.Z).Magnitude
     if flat < 5 then
         walkState.target = nil
@@ -464,7 +393,6 @@ NewFeature("walk", "Auto Walk", function()
         return S.walkInterval / 1000
     end
 
-    -- Timeout: se está indo para o mesmo destino há mais de 6s, desiste e escolhe outro
     if now - walkState.lastMoveAt > 6 then
         walkState.target = nil
         walkState.stuckSince = nil
@@ -472,7 +400,6 @@ NewFeature("walk", "Auto Walk", function()
         return 0.2
     end
 
-    -- Reenvia MoveTo a cada 0.25s para manter o movimento ativo
     return 0.25
 end, { onStart = ApplyWalkSpeed, onStop = StopMoving })
 
@@ -619,11 +546,6 @@ local function LoadMain()
         Z.Notify("ETW", "Todas as funções desligadas.", C.TextDim, 2)
     end)
 
-    -- UNSTUCK -------------------------------------------------------------
-    Z.Sep("🧭  UNSTUCK")
-    Z.Button("🧭  Unstuck (chão do Fragmentable)", C.Purple or C.Accent, function() Unstuck() end)
-    Z.Info("Teleporta para o chão dentro do Fragmentable. Use se ficar preso fora do mapa.")
-
     -- MAPA ----------------------------------------------------------------
     Z.Sep("🗺️  MAPA")
     local ss = GetServerSettings()
@@ -730,5 +652,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v7.5 carregado!", C.Success, 3)
-print("⚡ ETW Module v7.5 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v7.6 carregado!", C.Success, 3)
+print("⚡ ETW Module v7.6 iniciado")
