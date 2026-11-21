@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════╗
--- ║   N3on Hub - Eat The World Module v14                      ║
--- ║   Smart Sell (Size) + Timer Sell + UI Legível              ║
+-- ║   N3on Hub - Eat The World Module v15                      ║
+-- ║   Smart Sell + Timer Sell + Auto Rewards + Delay           ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
 if not _G.N3onHub or not _G.N3onHub.Ready then
@@ -14,10 +14,10 @@ local UIS          = game:GetService("UserInputService")
 local VIM          = game:GetService("VirtualInputManager")
 local RunService   = game:GetService("RunService")
 
-print("[ETW Module v14] Loading...")
+print("[ETW Module v15] Loading...")
 
 -- ═══════════════════════════════════════════════════════════════
--- SAVED STATES (Garante que não sobrescreve o que já existe)
+-- SAVED STATES (Garante que não sobrescreve)
 -- ═══════════════════════════════════════════════════════════════
 local S = _G.N3onHub.SavedStates
 local function def(k, v) if S[k] == nil then S[k] = v end end
@@ -35,8 +35,11 @@ def("throwInterval", 500)
 def("sellActive", false)
 def("sellInterval", 12000)
 
-def("smartSellActive", false)       -- O novo Smart Sell (Size)
-def("smartSellSizeThreshold", 5)    -- Tempo que o size precisa ficar igual para vender
+def("smartSellActive", false)
+def("smartSellSizeThreshold", 5)
+
+def("autoRewardsActive", false)      -- NOVO
+def("autoRewardsDelay", 3)           -- NOVO: Tempo de espera antes de resgatar
 
 def("walkActive", false)
 def("teleActive", false)
@@ -49,20 +52,19 @@ def("antiAfk", false)
 -- ═══════════════════════════════════════════════════════════════
 -- REFERÊNCIAS UI
 -- ═══════════════════════════════════════════════════════════════
-local UI = { grab = nil, eat = nil, throw = nil, sell = nil, smartSell = nil, walk = nil, tele = nil, antiAfk = nil }
+local UI = { grab = nil, eat = nil, throw = nil, sell = nil, smartSell = nil, walk = nil, tele = nil, antiAfk = nil, autoRewards = nil }
 
 -- ═══════════════════════════════════════════════════════════════
 -- FLAGS LOCAIS
 -- ═══════════════════════════════════════════════════════════════
 local grabActive, eatActive, throwActive, sellActive, smartSellActive = false, false, false, false, false
-local walkActive, teleActive, antiAfkActive = false, false, false
+local walkActive, teleActive, antiAfkActive, autoRewardsActive = false, false, false, false
 local antiKnock = false
 
-local grabGen, eatGen, throwGen, sellGen, walkGen, teleGen, antiAfkGen, smartSellGen = 0,0,0,0,0,0,0,0
+local grabGen, eatGen, throwGen, sellGen, walkGen, teleGen, antiAfkGen, smartSellGen, autoRewardsGen = 0,0,0,0,0,0,0,0,0
 
 local grabPaused = false
 local grabPauseEnd = 0
-local lastEatSize = 0
 
 -- ═══════════════════════════════════════════════════════════════
 -- HELPERS BÁSICOS
@@ -169,7 +171,7 @@ local function ForceReleaseGrab()
 end
 
 -- ═══════════════════════════════════════════════════════════════
--- LOOPS (Todos protegidos com Alive e myGen)
+-- LOOPS
 -- ═══════════════════════════════════════════════════════════════
 
 local function StartGrabLoop()
@@ -227,7 +229,7 @@ local function StartSellLoop()
 end
 local function StopSellLoop() sellActive = false; sellGen += 1 end
 
--- 🧠 NOVO SMART SELL (Por Tamanho do Leaderstats)
+-- 🧠 SMART SELL (Por Tamanho do Leaderstats)
 local function StartSmartSell()
     smartSellGen += 1; local myGen = smartSellGen
     
@@ -240,28 +242,58 @@ local function StartSmartSell()
             local sizeObj = ls and ls:FindFirstChild("Size")
             local currentSize = sizeObj and sizeObj.Value or 0
 
-            -- Se o tamanho mudou, reseta o timer de "travado"
             if currentSize ~= lastSize then
                 lastSize = currentSize
                 stuckTime = 0
             else
-                -- Se o tamanho não muda, acumula o tempo
                 stuckTime += 1
             end
 
-            -- Se o tamanho ficou travado pelo tempo definido e for maior que 0, vende
             if stuckTime >= S.smartSellSizeThreshold and currentSize > 0 then
                 FireEvent("Sell")
                 print("🧠 Smart Sell: Size travado em " .. currentSize .. ". Vendendo...")
-                stuckTime = 0 -- Reseta para não vender em loop infinito
-                task.wait(2) -- Espera a animação de venda terminar
+                stuckTime = 0
+                task.wait(2)
             end
 
-            task.wait(1) -- Checa o size a cada 1 segundo
+            task.wait(1)
         end
     end)
 end
 local function StopSmartSell() smartSellActive = false; smartSellGen += 1 end
+
+-- 🎁 NOVO: AUTO REWARDS (Resgatar Recompensas)
+local function StartAutoRewards()
+    autoRewardsGen += 1; local myGen = autoRewardsGen
+    
+    task.spawn(function()
+        while autoRewardsActive and autoRewardsGen == myGen and _G.N3onHub.Alive do
+            -- Procura a pasta TimedRewards no jogador
+            local timedRewards = Player:FindFirstChild("TimedRewards")
+            
+            if timedRewards then
+                for _, reward in ipairs(timedRewards:GetChildren()) do
+                    -- Se o valor for maior que 0 e o tempo atual já passou do tempo do resgate
+                    if reward:IsA("NumberValue") and reward.Value ~= -1 and reward.Value <= os.time() then
+                        print("🎁 Resgatando recompensa: " .. reward.Name)
+                        
+                        -- Dispara o evento que o jogo usa para resgatar
+                        pcall(function()
+                            game.ReplicatedStorage.Events.RewardEvent:FireServer(reward)
+                        end)
+                        
+                        -- Tempo de delay configurável via Slider
+                        task.wait(S.autoRewardsDelay)
+                    end
+                end
+            end
+            
+            task.wait(1) -- Checa a pasta de recompensas a cada 1 segundo
+        end
+    end)
+end
+local function StopAutoRewards() autoRewardsActive = false; autoRewardsGen += 1 end
+
 
 local function StartWalkLoop()
     walkGen += 1; local myGen = walkGen
@@ -340,7 +372,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════
--- API DE TOGGLE (Sincroniza UI com Keybinds)
+-- API DE TOGGLE
 -- ═══════════════════════════════════════════════════════════════
 local function setGrab(v)
     v = not not v; grabActive = v; S.grabActive = v
@@ -382,6 +414,12 @@ local function setSmartSell(v)
     end
 end
 
+local function setAutoRewards(v)
+    v = not not v; autoRewardsActive = v; S.autoRewardsActive = v
+    if UI.autoRewards and UI.autoRewards.SetState then UI.autoRewards:SetState(v, true) end
+    if v then StartAutoRewards() else StopAutoRewards() end
+end
+
 local function setWalk(v)
     v = not not v; walkActive = v; S.walkActive = v
     if UI.walk and UI.walk.SetState then UI.walk:SetState(v, true) end
@@ -404,7 +442,7 @@ local function setAntiKnock(v)
     v = not not v; antiKnock = v; S.antiKnock = v
 end
 
--- Keybinds Rápidos
+-- Keybinds
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe or not _G.N3onHub.Alive then return end
     if input.KeyCode == Enum.KeyCode.G then setGrab(not grabActive)
@@ -425,6 +463,11 @@ local function LoadFarmTab()
     local C = _G.N3onHub.Colors
     _G.N3onHub.GUI.TabTitle.Text = "🌾 Auto Farm"
 
+    _G.N3onHub.Sep("🎁  AUTO RESGATAR RECOMPENSAS")
+    _G.N3onHub.Info("  Resgata as recompensas de tempo (TimedRewards) automaticamente.")
+    UI.autoRewards = _G.N3onHub.Checkbox("Ativar Auto Rewards", autoRewardsActive, function(v) setAutoRewards(v) end)
+    _G.N3onHub.Slider("Tempo de espera entre resgates (s)", 1, 10, S.autoRewardsDelay, function(v) S.autoRewardsDelay = v end)
+
     _G.N3onHub.Sep("🖐️  AUTO GRAB (PEGAR)")
     _G.N3onHub.Info("  Só pega se não estiver segurando nada. Tecla [G]")
     UI.grab = _G.N3onHub.Checkbox("Ativar Auto Grab", grabActive, function(v) setGrab(v) end)
@@ -442,7 +485,6 @@ local function LoadFarmTab()
     _G.N3onHub.Slider("Intervalo entre arremessos (ms)", 100, 3000, S.throwInterval, function(v) S.throwInterval = v end)
 
     _G.N3onHub.Sep("💰  VENDER AUTOMÁTICO")
-    
     _G.N3onHub.Info("  ▶ [MODO 1] Vender por Tempo (Timer)")
     _G.N3onHub.Info("  Envia o comando de venda a cada X segundos.")
     UI.sell = _G.N3onHub.Checkbox("Vender por Tempo (Timer)", sellActive, function(v) setSellTimer(v) end)
@@ -506,4 +548,4 @@ end
 _G.N3onHub.Tab("Auto Farm", "🌾", 0, LoadFarmTab)
 _G.N3onHub.Tab("Misc",      "⚙️", 0, LoadMiscTab)
 
-print("[ETW Module v14] ✓ Eat The World carregado com Smart Sell!")
+print("[ETW Module v15] ✓ Eat The World carregado com Auto Rewards!")
