@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v7.1                                        ║
--- ║  Grab rápido • Walk real • Auto Rewards • Skip / Pause / Inf Map    ║
+-- ║  ZUNI HUB - ETW MODULE v7.2                                        ║
+-- ║  Grab rápido • Walk real • Auto Rewards • Skip / Pause automático  ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -29,8 +29,8 @@ local Keys = {
     throw = Enum.KeyCode.T,
     sell  = Enum.KeyCode.V, -- alterna: Timer -> Smart -> Desligado
 }
-local GROUP_ID     = 10587104 -- grupo exigido pro giro (spin) das rewards
-local SKIP_MAPTIME = 0        -- valor de MapTime enviado no Skip Map
+local GROUP_ID     = 10587104
+local SKIP_MAPTIME = 0
 
 local function Def(k, v) if S[k] == nil then S[k] = v end end
 Def("grabInterval", 150)
@@ -40,10 +40,12 @@ Def("sellTimerInterval", 12000)
 Def("smartSellThreshold", 5)
 Def("walkInterval", 300)
 Def("walkRadius", 40)
-Def("walkSpeed", 30)            -- WalkSpeed aplicado enquanto o Auto Walk está ligado
+Def("walkSpeed", 30)
 Def("rewardSpin", true)
 Def("skipInterval", 60)
 Def("skipStuckTime", 15)
+Def("autoPauseAfterSkip", true)   -- pausa o mapa após o skip
+Def("autoPauseDelay", 5)          -- segundos após o skip para pausar
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS DO JOGO
@@ -172,11 +174,18 @@ local function CountActive()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- MAPA: SKIP / PAUSE / INF MAP (SetServerSettings)
+-- MAPA: SKIP / PAUSE / AUTO PAUSE APÓS SKIP
 -- ═══════════════════════════════════════════════════════════════════════
 local grabState = { failSince = nil }
 local lastSkip = 0
-local infMapApplied = false
+local pauseToken = 0          -- incrementa a cada skip para cancelar pauses antigos
+
+local function SetMapPaused(v)
+    local ev = GetEvent("SetServerSettings")
+    if not ev then return false end
+    ev:FireServer({ Paused = v })
+    return true
+end
 
 local function SkipMap(reason)
     local ev = GetEvent("SetServerSettings")
@@ -184,20 +193,34 @@ local function SkipMap(reason)
         Z.Notify("Skip Map", "Evento SetServerSettings não encontrado.", C.Danger, 3)
         return false
     end
+
+    -- 1) Pula o mapa
     ev:FireServer({ MapTime = SKIP_MAPTIME })
     lastSkip = tick()
     grabState.failSince = nil
-    Z.Notify("Skip Map", reason or "Mapa pulado.", C.Accent, 2)
-    return true
-end
 
-local function SetMapPaused(v)
-    local ev = GetEvent("SetServerSettings")
-    if not ev then
-        Z.Notify("Pause Map", "Evento SetServerSettings não encontrado.", C.Danger, 3)
-        return false
+    -- 2) Despausa imediatamente (garante que o próximo mapa comece rodando)
+    pcall(function() ev:FireServer({ Paused = false }) end)
+
+    Z.Notify("Skip Map", reason or "Mapa pulado.", C.Accent, 2)
+
+    -- 3) Agenda o pause automático (se ligado)
+    if S.autoPauseAfterSkip then
+        pauseToken += 1
+        local my = pauseToken
+        task.delay(math.max(0.5, S.autoPauseDelay), function()
+            if my ~= pauseToken then return end
+            if not Z.Alive then return end
+            if not Features.skipTimer or not (Features.skipTimer.running or Features.skipStuck.running) then
+                -- mesmo se as features de skip estiverem desligadas, ainda pausa
+            end
+            local ok = SetMapPaused(true)
+            if ok then
+                Z.Notify("Auto Pause", "Mapa pausado após " .. S.autoPauseDelay .. "s do skip.", C.Warning, 2)
+            end
+        end)
     end
-    ev:FireServer({ Paused = v })
+
     return true
 end
 
@@ -252,7 +275,7 @@ end, {
     onStart = function() smart.last, smart.stuck = -1, 0 end,
 })
 
--- Auto Walk (MoveTo respeita WalkSpeed; aplicamos WalkSpeed ao iniciar)
+-- Auto Walk
 local function StopMoving()
     local hum, hrp = GetHum(), GetHRP()
     if hum and hrp then hum:MoveTo(hrp.Position) end
@@ -267,7 +290,6 @@ NewFeature("walk", "Auto Walk", function()
     local hrp, hum = GetHRP(), GetHum()
     if not (hrp and hum and hum.Health > 0) then return 0.5 end
 
-    -- Garante que o WalkSpeed escolhido está aplicado (MoveTo usa ele nativamente)
     if hum.WalkSpeed ~= S.walkSpeed then hum.WalkSpeed = S.walkSpeed end
 
     local target = RandomWalkablePos(hrp.Position, S.walkRadius)
@@ -371,32 +393,6 @@ NewFeature("skipStuck", "Skip Map (Sem Chunk)", function()
     return 0.5
 end)
 
--- Inf Map: aplica MapTime = 9999 uma única vez após o mapa resetar (MapTime == 0)
-NewFeature("infMap", "Inf Map", function()
-    local ss = GetServerSettings()
-    if not ss then return 1 end
-    local mapTime = ss:FindFirstChild("MapTime")
-    if not mapTime then return 1 end
-
-    -- Detecta reset: MapTime voltou para 0
-    if mapTime.Value == 0 then
-        infMapApplied = false
-    end
-
-    if not infMapApplied and mapTime.Value == 0 then
-        local ev = GetEvent("SetServerSettings")
-        if ev then
-            ev:FireServer({ MapTime = 9999 })
-            infMapApplied = true
-            Z.Notify("Inf Map", "MapTime definido para 9999.", C.Accent, 2)
-        end
-    end
-    return 0.5
-end, {
-    onStart = function() infMapApplied = false end,
-    onStop  = function() infMapApplied = false end,
-})
-
 -- ═══════════════════════════════════════════════════════════════════════
 -- ABA MAIN
 -- ═══════════════════════════════════════════════════════════════════════
@@ -471,14 +467,21 @@ local function LoadMain()
         Z.Info("⚠ ServerSettings.Paused não encontrado neste servidor.")
     end
 
+    Z.Toggle("Auto Pause após Skip", S.autoPauseAfterSkip, function(v)
+        S.autoPauseAfterSkip = v
+    end, "Pausa o mapa automaticamente alguns segundos depois de pular")
+    Z.Slider("Delay do pause", 1, 30, S.autoPauseDelay, function(v)
+        S.autoPauseDelay = v
+    end, { suffix = " s" })
+    Z.Info("Ao pular o mapa, o script despausa na hora e agenda o pause automático. " ..
+           "Se pular de novo antes do pause, o pause antigo é cancelado.")
+
     FeatureToggle("skipTimer", "Auto Skip Map (por tempo)", "Pula o mapa a cada X segundos")
     Z.Slider("Pular a cada", 5, 900, S.skipInterval, function(v) S.skipInterval = v end, { step = 5, suffix = " s" })
 
     FeatureToggle("skipStuck", "Auto Skip Map (sem chunk)", "Pula se tentar pegar e não conseguir por X s")
     Z.Slider("Tempo sem pegar chunk", 3, 120, S.skipStuckTime, function(v) S.skipStuckTime = v end, { suffix = " s" })
-
-    FeatureToggle("infMap", "Inf Map", "Define MapTime = 9999 quando o mapa reseta")
-    Z.Info("Quando o mapa resetar (MapTime = 0), envia 9999 uma única vez. Precisa estar ligado.")
+    Z.Info("O contador do 'sem chunk' só começa quando o Auto Grab tenta pegar e não pega nada. Precisa do Auto Grab ligado.")
 
     -- COLETA --------------------------------------------------------------
     Z.Sep("🌾  COLETA — AUTO GRAB")
@@ -542,5 +545,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v7.1 carregado!", C.Success, 3)
-print("⚡ ETW Module v7.1 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v7.2 carregado!", C.Success, 3)
+print("⚡ ETW Module v7.2 iniciado")
