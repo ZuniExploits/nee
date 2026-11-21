@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v7.3                                        ║
--- ║  Grab rápido • Walk real • Auto Rewards • Skip / Pause automático  ║
+-- ║  ZUNI HUB - ETW MODULE v7.4                                        ║
+-- ║  Grab c/ fallback de walk • Walk real • Rewards • Skip/Pause       ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -27,7 +27,7 @@ local Keys = {
     grab  = Enum.KeyCode.G,
     eat   = Enum.KeyCode.E,
     throw = Enum.KeyCode.T,
-    sell  = Enum.KeyCode.V, -- alterna: Timer -> Smart -> Desligado
+    sell  = Enum.KeyCode.V,
 }
 local GROUP_ID     = 10587104
 local SKIP_MAPTIME = 0
@@ -37,7 +37,7 @@ Def("grabInterval", 150)
 Def("eatInterval", 300)
 Def("throwInterval", 500)
 Def("sellTimerInterval", 12000)
-Def("smartSellThreshold", 5)     -- segundos "parado" (com chunk na mão) para vender
+Def("smartSellThreshold", 5)
 Def("walkInterval", 300)
 Def("walkRadius", 40)
 Def("walkSpeed", 30)
@@ -46,6 +46,8 @@ Def("skipInterval", 60)
 Def("skipStuckTime", 15)
 Def("autoPauseAfterSkip", true)
 Def("autoPauseDelay", 5)
+Def("grabWalkFallback", true)   -- ativa walk temporário quando o grab falha
+Def("grabWalkWait", 1.5)        -- segundos de espera com o walk ativado
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS DO JOGO
@@ -110,6 +112,69 @@ local function RandomWalkablePos(origin, radius)
         if pos then return pos end
     end
     return nil
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- UNSTUCK — TP para o chão dentro de Fragmentable
+-- ═══════════════════════════════════════════════════════════════════════
+local function GetFragmentable()
+    local ws = workspace
+    local f = ws:FindFirstChild("Fragmentable")
+    if f then return f end
+    -- às vezes fica dentro de uma pasta/workspace diferente
+    for _, v in ipairs(ws:GetDescendants()) do
+        if v.Name == "Fragmentable" then return v end
+    end
+    return nil
+end
+
+local function GetCenterOf(inst)
+    if inst:IsA("BasePart") then
+        return inst.Position
+    elseif inst:IsA("Model") then
+        local ok, cf = pcall(function() return inst:GetBoundingBox() end)
+        if ok and cf then return cf.Position end
+        local primary = inst.PrimaryPart
+        if primary then return primary.Position end
+        local ok2, pos = pcall(function() return inst:GetPivot().Position end)
+        if ok2 and pos then return pos end
+    end
+    return nil
+end
+
+local function Unstuck()
+    local frag = GetFragmentable()
+    if not frag then
+        Z.Notify("Unstuck", "Fragmentable não encontrado.", C.Warning, 3)
+        return false
+    end
+
+    local center = GetCenterOf(frag)
+    if not center then
+        Z.Notify("Unstuck", "Não consegui achar o centro do Fragmentable.", C.Warning, 3)
+        return false
+    end
+
+    -- Raycast do alto do centro até o chão
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    if Player.Character then rp.FilterDescendantsInstances = { Player.Character } end
+    local hit = workspace:Raycast(center + Vector3.new(0, 2000, 0), Vector3.new(0, -4000, 0), rp)
+    local ground = hit and (hit.Position + Vector3.new(0, 4, 0)) or center
+
+    local hrp = GetHRP()
+    if not hrp then
+        Z.Notify("Unstuck", "HRP não encontrado.", C.Warning, 3)
+        return false
+    end
+
+    pcall(function()
+        hrp.CFrame = CFrame.new(ground)
+        hrp.Velocity = Vector3.zero
+        hrp.RotVelocity = Vector3.zero
+    end)
+    Z.Notify("Unstuck", "Teleportado para o chão do Fragmentable.", C.Success, 2)
+    return true
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -218,18 +283,56 @@ local function SkipMap(reason)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- FEATURES
+-- GRAB com fallback de walk
 -- ═══════════════════════════════════════════════════════════════════════
+local grabFallback = { walking = false, wasWalkOn = false }
 
--- Auto Grab
-local function ResetGrab() grabState.failSince = nil end
+local function StartTempWalk()
+    if grabFallback.walking then return end
+    grabFallback.wasWalkOn = Features.walk and Features.walk.running or false
+    grabFallback.walking = true
+    SetFeature("walk", true, true) -- silencioso
+end
+
+local function StopTempWalk()
+    if not grabFallback.walking then return end
+    grabFallback.walking = false
+    if not grabFallback.wasWalkOn then
+        SetFeature("walk", false, true) -- desativa só se não estava ligado antes
+    end
+end
+
+local function ResetGrab()
+    grabState.failSince = nil
+    StopTempWalk()
+end
+
 NewFeature("grab", "Auto Grab", function()
     if HasChunk() then
         grabState.failSince = nil
+        if grabFallback.walking then StopTempWalk() end
         return 0.1
     end
+
     if not grabState.failSince then grabState.failSince = tick() end
-    task.spawn(FireEvent, "Grab")
+
+    -- Tenta pegar (não bloqueia se for RemoteFunction)
+    local ok = false
+    local success, result = pcall(function()
+        return FireEvent("Grab")
+    end)
+    ok = success and result
+
+    -- Se não conseguiu pegar e o fallback está ligado, ativa walk temporário
+    if not ok and S.grabWalkFallback and not grabFallback.walking then
+        StartTempWalk()
+        task.delay(math.max(0.2, S.grabWalkWait), function()
+            if grabFallback.walking then
+                StopTempWalk()
+            end
+        end)
+    end
+
     return S.grabInterval / 1000
 end, { onStart = ResetGrab, onStop = ResetGrab })
 
@@ -248,26 +351,20 @@ NewFeature("sellTimer", "Auto Sell (Timer)", function()
     return S.sellTimerInterval / 1000
 end, { exclusive = "smartSell" })
 
--- Smart Sell: vende APENAS quando está com chunk na mão e o tamanho parou de crescer
+-- Smart Sell: vende quando está com chunk na mão e o tamanho parou de crescer
 local smart = { last = -1, stuck = 0 }
 NewFeature("smartSell", "Smart Sell (com chunk)", function()
     local hasChunk = HasChunk()
-
-    -- Se não tem chunk na mão, não vende e zera o contador
     if not hasChunk then
         smart.last, smart.stuck = -1, 0
         return 1
     end
-
     local cur = GetSize() or 0
     if cur ~= smart.last then
-        -- Tamanho mudou: ainda está crescendo, zera o contador
         smart.last, smart.stuck = cur, 0
     else
-        -- Tamanho igual por 1s com chunk na mão: conta como "parado"
         smart.stuck += 1
     end
-
     if smart.stuck >= S.smartSellThreshold and cur > 0 then
         FireEvent("Sell")
         Z.Notify("Smart Sell", "Vendendo (chunk parado)...", C.Success, 2)
@@ -294,7 +391,6 @@ end
 NewFeature("walk", "Auto Walk", function()
     local hrp, hum = GetHRP(), GetHum()
     if not (hrp and hum and hum.Health > 0) then return 0.5 end
-
     if hum.WalkSpeed ~= S.walkSpeed then hum.WalkSpeed = S.walkSpeed end
 
     local target = RandomWalkablePos(hrp.Position, S.walkRadius)
@@ -457,6 +553,11 @@ local function LoadMain()
         Z.Notify("ETW", "Todas as funções desligadas.", C.TextDim, 2)
     end)
 
+    -- UNSTUCK -------------------------------------------------------------
+    Z.Sep("🧭  UNSTUCK")
+    Z.Button("🧭  Unstuck (chão do Fragmentable)", C.Purple or C.Accent, function() Unstuck() end)
+    Z.Info("Teleporta para o chão dentro do Fragmentable. Use se ficar preso fora do mapa.")
+
     -- MAPA ----------------------------------------------------------------
     Z.Sep("🗺️  MAPA")
     local ss = GetServerSettings()
@@ -493,6 +594,14 @@ local function LoadMain()
     FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk sem parar até conseguir")
     Z.Slider("Intervalo entre tentativas", 50, 3000, S.grabInterval, function(v) S.grabInterval = v end, { step = 25, suffix = " ms" })
 
+    Z.Toggle("Ativar walk ao falhar grab", S.grabWalkFallback, function(v)
+        S.grabWalkFallback = v
+    end, "Se o Grab não conseguir pegar, ativa o Auto Walk temporariamente")
+    Z.Slider("Tempo com walk ativado", 0.2, 5, S.grabWalkWait, function(v)
+        S.grabWalkWait = v
+    end, { step = 0.1, suffix = " s" })
+    Z.Info("Se o walk já estava ligado antes, ele não é desligado. Se estava desligado, é desligado após o tempo acima.")
+
     Z.Sep("🍽️  COMER — AUTO EAT")
     FeatureToggle("eat", "Auto Eat", "Come automaticamente")
     Z.Slider("Intervalo", 100, 3000, S.eatInterval, function(v) S.eatInterval = v end, { step = 50, suffix = " ms" })
@@ -508,7 +617,7 @@ local function LoadMain()
     Z.Slider("Vender a cada", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v end, { step = 500, suffix = " ms" })
     FeatureToggle("smartSell", "Smart Sell (com chunk)", "Vende quando você está com chunk na mão e o tamanho parou de crescer")
     Z.Slider("Considerar parado após", 2, 20, S.smartSellThreshold, function(v) S.smartSellThreshold = v end, { suffix = " s" })
-    Z.Info("Só vende se estiver com chunk na mão. Se o tamanho ficar igual por X segundos, vende. Sem chunk, o contador zera.")
+    Z.Info("Só vende se estiver com chunk na mão. Sem chunk, o contador zera.")
 
     -- EXTRAS --------------------------------------------------------------
     Z.Sep("🗑️  EXTRAS — AUTO THROW")
@@ -551,5 +660,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v7.3 carregado!", C.Success, 3)
-print("⚡ ETW Module v7.3 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v7.4 carregado!", C.Success, 3)
+print("⚡ ETW Module v7.4 iniciado")
