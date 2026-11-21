@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v7.4                                        ║
--- ║  Grab c/ fallback de walk • Walk real • Rewards • Skip/Pause       ║
+-- ║  ZUNI HUB - ETW MODULE v7.5                                        ║
+-- ║  Walk contínuo • Grab anti-travamento • Rewards • Skip/Pause       ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -46,8 +46,10 @@ Def("skipInterval", 60)
 Def("skipStuckTime", 15)
 Def("autoPauseAfterSkip", true)
 Def("autoPauseDelay", 5)
-Def("grabWalkFallback", true)   -- ativa walk temporário quando o grab falha
-Def("grabWalkWait", 1.5)        -- segundos de espera com o walk ativado
+Def("grabWalkFallback", true)
+Def("grabWalkWait", 1.5)
+Def("grabStuckTime", 1.5)       -- segundos sem pegar chunk = travado, precisa mudar de posição
+Def("walkStuckTime", 2.0)       -- segundos sem se mover durante o Walk = travado, precisa mudar de destino
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS DO JOGO
@@ -121,7 +123,6 @@ local function GetFragmentable()
     local ws = workspace
     local f = ws:FindFirstChild("Fragmentable")
     if f then return f end
-    -- às vezes fica dentro de uma pasta/workspace diferente
     for _, v in ipairs(ws:GetDescendants()) do
         if v.Name == "Fragmentable" then return v end
     end
@@ -148,26 +149,21 @@ local function Unstuck()
         Z.Notify("Unstuck", "Fragmentable não encontrado.", C.Warning, 3)
         return false
     end
-
     local center = GetCenterOf(frag)
     if not center then
         Z.Notify("Unstuck", "Não consegui achar o centro do Fragmentable.", C.Warning, 3)
         return false
     end
-
-    -- Raycast do alto do centro até o chão
     local rp = RaycastParams.new()
     rp.FilterType = Enum.RaycastFilterType.Exclude
     if Player.Character then rp.FilterDescendantsInstances = { Player.Character } end
     local hit = workspace:Raycast(center + Vector3.new(0, 2000, 0), Vector3.new(0, -4000, 0), rp)
     local ground = hit and (hit.Position + Vector3.new(0, 4, 0)) or center
-
     local hrp = GetHRP()
     if not hrp then
         Z.Notify("Unstuck", "HRP não encontrado.", C.Warning, 3)
         return false
     end
-
     pcall(function()
         hrp.CFrame = CFrame.new(ground)
         hrp.Velocity = Vector3.zero
@@ -213,9 +209,7 @@ local function SetFeature(key, v, quiet)
     if not ft then return end
     v = not not v
     if v == ft.running then return end
-
     if v and ft.exclusive then SetFeature(ft.exclusive, false, true) end
-
     ft.running = v
     if v then
         if ft.onStart then pcall(ft.onStart) end
@@ -224,7 +218,6 @@ local function SetFeature(key, v, quiet)
         ft.gen += 1
         if ft.onStop then pcall(ft.onStop) end
     end
-
     local ui = UI[key]
     if ui and ui.Frame.Parent then ui.Set(v, true) end
     if not quiet then
@@ -241,7 +234,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 -- MAPA: SKIP / PAUSE / AUTO PAUSE APÓS SKIP
 -- ═══════════════════════════════════════════════════════════════════════
-local grabState = { failSince = nil }
+local grabState = { failSince = nil, lastGrabAt = 0, lastPos = nil, stuckSince = nil }
 local lastSkip = 0
 local pauseToken = 0
 
@@ -258,14 +251,12 @@ local function SkipMap(reason)
         Z.Notify("Skip Map", "Evento SetServerSettings não encontrado.", C.Danger, 3)
         return false
     end
-
     ev:FireServer({ MapTime = SKIP_MAPTIME })
     lastSkip = tick()
     grabState.failSince = nil
+    grabState.stuckSince = nil
     pcall(function() ev:FireServer({ Paused = false }) end)
-
     Z.Notify("Skip Map", reason or "Mapa pulado.", C.Accent, 2)
-
     if S.autoPauseAfterSkip then
         pauseToken += 1
         local my = pauseToken
@@ -278,12 +269,11 @@ local function SkipMap(reason)
             end
         end)
     end
-
     return true
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- GRAB com fallback de walk
+-- GRAB com fallback de walk + anti-travamento
 -- ═══════════════════════════════════════════════════════════════════════
 local grabFallback = { walking = false, wasWalkOn = false }
 
@@ -291,48 +281,74 @@ local function StartTempWalk()
     if grabFallback.walking then return end
     grabFallback.wasWalkOn = Features.walk and Features.walk.running or false
     grabFallback.walking = true
-    SetFeature("walk", true, true) -- silencioso
+    SetFeature("walk", true, true)
 end
 
 local function StopTempWalk()
     if not grabFallback.walking then return end
     grabFallback.walking = false
     if not grabFallback.wasWalkOn then
-        SetFeature("walk", false, true) -- desativa só se não estava ligado antes
+        SetFeature("walk", false, true)
     end
 end
 
 local function ResetGrab()
     grabState.failSince = nil
+    grabState.stuckSince = nil
+    grabState.lastPos = nil
     StopTempWalk()
 end
 
 NewFeature("grab", "Auto Grab", function()
+    local hrp = GetHRP()
+    local pos = hrp and hrp.Position or nil
+
+    -- Se tem chunk, limpa tudo e retorna rápido
     if HasChunk() then
         grabState.failSince = nil
+        grabState.stuckSince = nil
+        grabState.lastPos = pos
         if grabFallback.walking then StopTempWalk() end
         return 0.1
     end
 
-    if not grabState.failSince then grabState.failSince = tick() end
+    local now = tick()
+    if not grabState.failSince then grabState.failSince = now end
 
-    -- Tenta pegar (não bloqueia se for RemoteFunction)
-    local ok = false
-    local success, result = pcall(function()
-        return FireEvent("Grab")
-    end)
-    ok = success and result
+    -- ── Anti-travamento: está parado no mesmo lugar e sem chunk ──
+    if pos and grabState.lastPos then
+        local moved = (pos - grabState.lastPos).Magnitude
+        if moved < 0.5 then
+            if not grabState.stuckSince then grabState.stuckSince = now end
+        else
+            grabState.stuckSince = nil
+        end
+    end
+    grabState.lastPos = pos
 
-    -- Se não conseguiu pegar e o fallback está ligado, ativa walk temporário
-    if not ok and S.grabWalkFallback and not grabFallback.walking then
-        StartTempWalk()
-        task.delay(math.max(0.2, S.grabWalkWait), function()
-            if grabFallback.walking then
-                StopTempWalk()
+    -- Se está travado há mais de grabStuckTime, força mudança de posição
+    if grabState.stuckSince and (now - grabState.stuckSince) >= S.grabStuckTime then
+        -- Tenta ativar walk temporário (que vai mudar a posição)
+        if S.grabWalkFallback and not grabFallback.walking then
+            StartTempWalk()
+            task.delay(math.max(0.2, S.grabWalkWait), function()
+                if grabFallback.walking then StopTempWalk() end
+            end)
+        else
+            -- Fallback extra: teleporta para um ponto aleatório próximo
+            if pos then
+                local target = RandomWalkablePos(pos, S.walkRadius)
+                if target and hrp then
+                    pcall(function() hrp.CFrame = CFrame.new(target) end)
+                end
             end
-        end)
+        end
+        grabState.stuckSince = nil
+        grabState.lastPos = nil
     end
 
+    -- Tenta pegar
+    task.spawn(FireEvent, "Grab")
     return S.grabInterval / 1000
 end, { onStart = ResetGrab, onStop = ResetGrab })
 
@@ -351,7 +367,7 @@ NewFeature("sellTimer", "Auto Sell (Timer)", function()
     return S.sellTimerInterval / 1000
 end, { exclusive = "smartSell" })
 
--- Smart Sell: vende quando está com chunk na mão e o tamanho parou de crescer
+-- Smart Sell
 local smart = { last = -1, stuck = 0 }
 NewFeature("smartSell", "Smart Sell (com chunk)", function()
     local hasChunk = HasChunk()
@@ -377,42 +393,92 @@ end, {
     onStart = function() smart.last, smart.stuck = -1, 0 end,
 })
 
--- Auto Walk
+-- ═══════════════════════════════════════════════════════════════════════
+-- AUTO WALK — MoveTo contínuo + detecção de travamento
+-- ═══════════════════════════════════════════════════════════════════════
+local walkState = { target = nil, lastPos = nil, stuckSince = nil, lastMoveAt = 0 }
+
 local function StopMoving()
     local hum, hrp = GetHum(), GetHRP()
     if hum and hrp then hum:MoveTo(hrp.Position) end
+    walkState.target = nil
+    walkState.stuckSince = nil
 end
 
 local function ApplyWalkSpeed()
     local hum = GetHum()
     if hum then hum.WalkSpeed = S.walkSpeed end
+    walkState.target = nil
+    walkState.lastPos = nil
+    walkState.stuckSince = nil
 end
 
 NewFeature("walk", "Auto Walk", function()
     local hrp, hum = GetHRP(), GetHum()
-    if not (hrp and hum and hum.Health > 0) then return 0.5 end
+    if not (hrp and hum and hum.Health > 0) then return 0.3 end
+
+    -- Garante WalkSpeed correto
     if hum.WalkSpeed ~= S.walkSpeed then hum.WalkSpeed = S.walkSpeed end
 
-    local target = RandomWalkablePos(hrp.Position, S.walkRadius)
-    if not target then return 0.5 end
+    local now = tick()
+    local pos = hrp.Position
 
-    hum:MoveTo(target)
-    local startT, lastCheck, lastPos = tick(), tick(), hrp.Position
-    while Features.walk.running and Z.Alive and tick() - startT < 8 do
-        task.wait(0.15)
-        hrp, hum = GetHRP(), GetHum()
-        if not (hrp and hum) or hum.Health <= 0 then break end
-        local flat = Vector3.new(target.X - hrp.Position.X, 0, target.Z - hrp.Position.Z).Magnitude
-        if flat < 4 then break end
-        if tick() - lastCheck > 1 then
-            if (hrp.Position - lastPos).Magnitude < 1 then hum.Jump = true end
-            lastPos, lastCheck = hrp.Position, tick()
+    -- ── Detecção de travamento ──
+    if walkState.lastPos then
+        local moved = (pos - walkState.lastPos).Magnitude
+        if moved < 0.5 then
+            if not walkState.stuckSince then walkState.stuckSince = now end
+        else
+            walkState.stuckSince = nil
         end
     end
-    return S.walkInterval / 1000
+    walkState.lastPos = pos
+
+    -- Se travou, pula e tenta outro destino
+    if walkState.stuckSince and (now - walkState.stuckSince) >= S.walkStuckTime then
+        hum.Jump = true
+        walkState.target = nil
+        walkState.stuckSince = nil
+        walkState.lastMoveAt = 0
+        return 0.2
+    end
+
+    -- ── Se não tem destino, escolhe um ──
+    if not walkState.target then
+        walkState.target = RandomWalkablePos(pos, S.walkRadius)
+        if not walkState.target then return 0.5 end
+        walkState.lastMoveAt = now
+    end
+
+    -- ── MoveTo CONTÍNUO (a cada ~0.25s) ──
+    -- Em vez de esperar chegar, reenvia o MoveTo periodicamente
+    -- para garantir que o Humanoid está sempre tentando ir para o destino.
+    hum:MoveTo(walkState.target)
+
+    -- Se chegou perto do destino (flat distance < 5), escolhe outro
+    local flat = Vector3.new(walkState.target.X - pos.X, 0, walkState.target.Z - pos.Z).Magnitude
+    if flat < 5 then
+        walkState.target = nil
+        walkState.stuckSince = nil
+        walkState.lastMoveAt = 0
+        return S.walkInterval / 1000
+    end
+
+    -- Timeout: se está indo para o mesmo destino há mais de 6s, desiste e escolhe outro
+    if now - walkState.lastMoveAt > 6 then
+        walkState.target = nil
+        walkState.stuckSince = nil
+        walkState.lastMoveAt = 0
+        return 0.2
+    end
+
+    -- Reenvia MoveTo a cada 0.25s para manter o movimento ativo
+    return 0.25
 end, { onStart = ApplyWalkSpeed, onStop = StopMoving })
 
--- Auto Redeem Rewards
+-- ═══════════════════════════════════════════════════════════════════════
+-- AUTO REWARDS
+-- ═══════════════════════════════════════════════════════════════════════
 local rewardSent, lastSpin = {}, 0
 local RewardInfo = nil
 local groupOk, groupCheckedAt = false, -math.huge
@@ -456,7 +522,6 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
             end
         end
     end
-
     if S.rewardSpin and tick() - lastSpin > 8 then
         local info = GetRewardInfo()
         local stats = Player:FindFirstChild("Stats")
@@ -473,7 +538,9 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
     return 1
 end)
 
--- Skip Map por tempo
+-- ═══════════════════════════════════════════════════════════════════════
+-- SKIP MAP
+-- ═══════════════════════════════════════════════════════════════════════
 local skipNext = 0
 NewFeature("skipTimer", "Skip Map (Tempo)", function()
     local now = tick()
@@ -485,7 +552,6 @@ NewFeature("skipTimer", "Skip Map (Tempo)", function()
     return 0.5
 end, { onStart = function() skipNext = tick() + S.skipInterval end })
 
--- Skip Map quando não consegue pegar chunk
 NewFeature("skipStuck", "Skip Map (Sem Chunk)", function()
     local fs = grabState.failSince
     if fs and tick() - fs >= S.skipStuckTime and tick() - lastSkip > 3 then
@@ -591,16 +657,19 @@ local function LoadMain()
 
     -- COLETA --------------------------------------------------------------
     Z.Sep("🌾  COLETA — AUTO GRAB")
-    FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk sem parar até conseguir")
+    FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk sem parar. Se ficar travado sem chunk, muda de posição.")
     Z.Slider("Intervalo entre tentativas", 50, 3000, S.grabInterval, function(v) S.grabInterval = v end, { step = 25, suffix = " ms" })
 
-    Z.Toggle("Ativar walk ao falhar grab", S.grabWalkFallback, function(v)
+    Z.Toggle("Ativar walk ao travar sem chunk", S.grabWalkFallback, function(v)
         S.grabWalkFallback = v
-    end, "Se o Grab não conseguir pegar, ativa o Auto Walk temporariamente")
+    end, "Se não conseguir pegar chunk, ativa o Auto Walk temporariamente para sair do lugar")
     Z.Slider("Tempo com walk ativado", 0.2, 5, S.grabWalkWait, function(v)
         S.grabWalkWait = v
     end, { step = 0.1, suffix = " s" })
-    Z.Info("Se o walk já estava ligado antes, ele não é desligado. Se estava desligado, é desligado após o tempo acima.")
+    Z.Slider("Tempo para considerar travado", 0.5, 5, S.grabStuckTime, function(v)
+        S.grabStuckTime = v
+    end, { step = 0.1, suffix = " s" })
+    Z.Info("Se o jogador ficar parado no mesmo lugar sem chunk por X segundos, o Grab considera travado e força mudança de posição.")
 
     Z.Sep("🍽️  COMER — AUTO EAT")
     FeatureToggle("eat", "Auto Eat", "Come automaticamente")
@@ -625,10 +694,11 @@ local function LoadMain()
     Z.Slider("Intervalo", 100, 3000, S.throwInterval, function(v) S.throwInterval = v end, { step = 50, suffix = " ms" })
 
     Z.Sep("🚶  MOVIMENTO — AUTO WALK")
-    FeatureToggle("walk", "Auto Walk", "Anda de verdade até pontos aleatórios (usa MoveTo + WalkSpeed)")
+    FeatureToggle("walk", "Auto Walk", "Anda de verdade com MoveTo contínuo + anti-travamento")
     Z.Slider("WalkSpeed no walk", 16, 150, S.walkSpeed, function(v) S.walkSpeed = v end, { step = 2, suffix = " studs/s" })
     Z.Slider("Raio de caminhada", 20, 150, S.walkRadius, function(v) S.walkRadius = v end, { step = 5, suffix = " studs" })
     Z.Slider("Pausa entre destinos", 0, 3000, S.walkInterval, function(v) S.walkInterval = v end, { step = 50, suffix = " ms" })
+    Z.Slider("Tempo para considerar travado no walk", 1, 10, S.walkStuckTime, function(v) S.walkStuckTime = v end, { step = 0.5, suffix = " s" })
 
     -- ATALHOS -------------------------------------------------------------
     Z.Sep("⌨️  ATALHOS")
@@ -660,5 +730,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v7.4 carregado!", C.Success, 3)
-print("⚡ ETW Module v7.4 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v7.5 carregado!", C.Success, 3)
+print("⚡ ETW Module v7.5 iniciado")
