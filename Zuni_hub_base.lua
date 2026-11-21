@@ -1,67 +1,39 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - PREMIUM UI BASE v4.0                                   ║
--- ║  Apenas UI, Home e Player. Design ultra limpo.                     ║
+-- ║  ZUNI HUB - PREMIUM UI BASE v4.1                                   ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
-
 local Player       = game.Players.LocalPlayer
 local PlayerGui    = Player:WaitForChild("PlayerGui")
 local UIS          = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local RunService   = game:GetService("RunService")
 
--- ═══════════════════════════════════════════════════════════════════════
--- PALETA PREMIUM
--- ═══════════════════════════════════════════════════════════════════════
 local Colors = {
-    Bg          = Color3.fromRGB(12, 12, 18),
-    BgSoft      = Color3.fromRGB(18, 18, 26),
-    Sidebar     = Color3.fromRGB(22, 22, 32),
-    Card        = Color3.fromRGB(30, 30, 42),
-    CardHover   = Color3.fromRGB(38, 38, 55),
-    Accent      = Color3.fromRGB(110, 160, 255),
-    AccentLight = Color3.fromRGB(160, 200, 255),
-    AccentDark  = Color3.fromRGB(70, 110, 200),
-    Purple      = Color3.fromRGB(180, 120, 255),
-    Success     = Color3.fromRGB(80, 220, 130),
-    Warning     = Color3.fromRGB(255, 200, 70),
-    Danger      = Color3.fromRGB(255, 80, 90),
-    Text        = Color3.fromRGB(245, 245, 255),
-    TextDim     = Color3.fromRGB(160, 160, 180),
-    TextMuted   = Color3.fromRGB(100, 100, 125),
-    Border      = Color3.fromRGB(55, 55, 75),
-    Divider     = Color3.fromRGB(40, 40, 55),
+    Bg          = Color3.fromRGB(12, 12, 18), BgSoft = Color3.fromRGB(18, 18, 26),
+    Sidebar     = Color3.fromRGB(22, 22, 32), Card = Color3.fromRGB(30, 30, 42),
+    CardHover   = Color3.fromRGB(38, 38, 55), Accent = Color3.fromRGB(110, 160, 255),
+    AccentLight = Color3.fromRGB(160, 200, 255), AccentDark = Color3.fromRGB(70, 110, 200),
+    Purple      = Color3.fromRGB(180, 120, 255), Success = Color3.fromRGB(80, 220, 130),
+    Danger      = Color3.fromRGB(255, 80, 90), Text = Color3.fromRGB(245, 245, 255),
+    TextDim     = Color3.fromRGB(160, 160, 180), TextMuted = Color3.fromRGB(100, 100, 125),
+    Border      = Color3.fromRGB(55, 55, 75), Divider = Color3.fromRGB(40, 40, 55),
     Shadow      = Color3.fromRGB(0, 0, 0),
 }
 
--- Limpeza
 if _G.ZuniHub then pcall(function() _G.ZuniHub.Alive = false end) _G.ZuniHub = nil end
-for _, guiName in ipairs({"ZuniHub", "ZuniNotify"}) do
-    local g = PlayerGui:FindFirstChild(guiName)
-    if g then pcall(function() g:Destroy() end) end
-end
+for _, g in ipairs(PlayerGui:GetChildren()) do if g.Name == "ZuniHub" or g.Name == "ZuniNotify" then g:Destroy() end end
 task.wait(0.1)
 
-_G.ZuniHub = { Version = "4.0", Alive = true, Colors = Colors, SavedStates = {}, UI = {}, Connections = {} }
+_G.ZuniHub = { Version = "4.1", Alive = true, Colors = Colors, SavedStates = {}, UI = {}, Connections = {} }
 local Z = _G.ZuniHub
-function Z.Track(conn) if conn then table.insert(Z.Connections, conn) end return conn end
 
--- ═══════════════════════════════════════════════════════════════════════
--- SCREEN GUIS
--- ═══════════════════════════════════════════════════════════════════════
 local Hub = Instance.new("ScreenGui", PlayerGui)
-Hub.Name, Hub.ResetOnSpawn, Hub.IgnoreGuiInset, Hub.ZIndexBehavior = "ZuniHub", false, true, Enum.ZIndexBehavior.Sibling
-Hub.DisplayOrder = 999
+Hub.Name, Hub.ResetOnSpawn, Hub.IgnoreGuiInset, Hub.ZIndexBehavior, Hub.DisplayOrder = "ZuniHub", false, true, Enum.ZIndexBehavior.Sibling, 999
 
 local NotifyGui = Instance.new("ScreenGui", PlayerGui)
-NotifyGui.Name, NotifyGui.ResetOnSpawn, NotifyGui.IgnoreGuiInset = "ZuniNotify", false, true
-NotifyGui.DisplayOrder = 1000
+NotifyGui.Name, NotifyGui.ResetOnSpawn, NotifyGui.IgnoreGuiInset, NotifyGui.DisplayOrder = "ZuniNotify", false, true, 1000
 
--- ═══════════════════════════════════════════════════════════════════════
--- SISTEMA DE NOTIFICAÇÃO
--- ═══════════════════════════════════════════════════════════════════════
 local notifyContainer = Instance.new("Frame", NotifyGui)
-notifyContainer.Size, notifyContainer.Position, notifyContainer.BackgroundTransparency = UDim2.new(0, 320, 1, 0), UDim2.new(1, -340, 0, 20), 1
-notifyContainer.ZIndex = 100
+notifyContainer.Size, notifyContainer.Position, notifyContainer.BackgroundTransparency, notifyContainer.ZIndex = UDim2.new(0, 320, 1, 0), UDim2.new(1, -340, 0, 20), 1, 100
 local notifyLayout = Instance.new("UIListLayout", notifyContainer)
 notifyLayout.Padding, notifyLayout.SortOrder = UDim.new(0, 8), Enum.SortOrder.LayoutOrder
 local notifyCounter = 0
@@ -72,21 +44,18 @@ function Z.Notify(title, text, color, duration)
     local toast = Instance.new("Frame", notifyContainer)
     toast.Size, toast.BackgroundColor3, toast.BorderSizePixel, toast.ZIndex, toast.LayoutOrder = UDim2.new(1, 0, 0, 0), Colors.Card, 0, 101, notifyCounter
     Instance.new("UICorner", toast).CornerRadius = UDim.new(0, 10)
-    Instance.new("UIStroke", toast).Color = color
-    
     local accent = Instance.new("Frame", toast)
     accent.Size, accent.Position, accent.BackgroundColor3, accent.BorderSizePixel = UDim2.new(0, 4, 1, -12), UDim2.new(0, 4, 0, 6), color, 0
     Instance.new("UICorner", accent).CornerRadius = UDim.new(0, 10)
+    Instance.new("UIStroke", toast).Color = color
 
     local titleLbl = Instance.new("TextLabel", toast)
     titleLbl.Size, titleLbl.Position, titleLbl.BackgroundTransparency = UDim2.new(1, -24, 0, 20), UDim2.fromOffset(16, 10), 1
     titleLbl.Text, titleLbl.Font, titleLbl.TextSize, titleLbl.TextColor3, titleLbl.TextXAlignment = title, Enum.Font.GothamBold, 12, Colors.Text, Enum.TextXAlignment.Left
-    titleLbl.ZIndex = 102
 
     local textLbl = Instance.new("TextLabel", toast)
     textLbl.Size, textLbl.Position, textLbl.BackgroundTransparency = UDim2.new(1, -24, 0, 32), UDim2.fromOffset(16, 30), 1
     textLbl.Text, textLbl.Font, textLbl.TextSize, textLbl.TextColor3, textLbl.TextXAlignment, textLbl.TextWrapped = text, Enum.Font.Gotham, 10, Colors.TextDim, Enum.TextXAlignment.Left, true
-    textLbl.ZIndex = 102
 
     local progress = Instance.new("Frame", toast)
     progress.Size, progress.Position, progress.BackgroundColor3, progress.BorderSizePixel = UDim2.new(1, -20, 0, 2), UDim2.new(0, 10, 1, -6), color, 0
@@ -103,9 +72,6 @@ function Z.Notify(title, text, color, duration)
     end)
 end
 
--- ═══════════════════════════════════════════════════════════════════════
--- JANELA PRINCIPAL
--- ═══════════════════════════════════════════════════════════════════════
 local Shadow = Instance.new("Frame", Hub)
 Shadow.Size, Shadow.BackgroundColor3, Shadow.BackgroundTransparency, Shadow.BorderSizePixel, Shadow.ZIndex, Shadow.Visible = UDim2.fromScale(1, 1), Colors.Shadow, 1, 0, 1, false
 
@@ -121,7 +87,6 @@ TopGlow.Size, TopGlow.BackgroundColor3, TopGlow.BorderSizePixel, TopGlow.ZIndex 
 local grad = Instance.new("UIGradient", TopGlow)
 grad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Colors.Accent), ColorSequenceKeypoint.new(0.5, Colors.Purple), ColorSequenceKeypoint.new(1, Colors.Accent)})
 
--- SIDEBAR
 local Sidebar = Instance.new("Frame", Main)
 Sidebar.Size, Sidebar.BackgroundColor3, Sidebar.BorderSizePixel, Sidebar.ZIndex = UDim2.fromOffset(180, 480), Colors.Sidebar, 0, 3
 Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 16)
@@ -139,7 +104,7 @@ LogoTitle.Text, LogoTitle.Font, LogoTitle.TextSize, LogoTitle.TextColor3, LogoTi
 
 local LogoSub = Instance.new("TextLabel", LogoCard)
 LogoSub.Size, LogoSub.Position, LogoSub.BackgroundTransparency = UDim2.new(1, -60, 0, 16), UDim2.fromOffset(55, 30), 1
-LogoSub.Text, LogoSub.Font, LogoSub.TextSize, LogoSub.TextColor3, LogoSub.TextXAlignment = "HUB v4.0", Enum.Font.Gotham, 9, Colors.AccentLight, Enum.TextXAlignment.Left
+LogoSub.Text, LogoSub.Font, LogoSub.TextSize, LogoSub.TextColor3, LogoSub.TextXAlignment = "HUB v4.1", Enum.Font.Gotham, 9, Colors.AccentLight, Enum.TextXAlignment.Left
 
 local TabsScroll = Instance.new("ScrollingFrame", Sidebar)
 TabsScroll.Size, TabsScroll.Position, TabsScroll.BackgroundTransparency, TabsScroll.BorderSizePixel = UDim2.new(1, -12, 1, -90), UDim2.fromOffset(6, 80), 1, 0
@@ -148,7 +113,6 @@ TabsScroll.CanvasSize, TabsScroll.ZIndex, TabsScroll.AutomaticCanvasSize = UDim2
 local TabsLayout = Instance.new("UIListLayout", TabsScroll)
 TabsLayout.Padding, TabsLayout.SortOrder = UDim.new(0, 5), Enum.SortOrder.LayoutOrder
 
--- ÁREA DE CONTEÚDO
 local Content = Instance.new("Frame", Main)
 Content.Size, Content.Position, Content.BackgroundTransparency, Content.ZIndex = UDim2.new(1, -190, 1, -20), UDim2.fromOffset(190, 10), 1, 3
 
@@ -170,7 +134,6 @@ ContentLayout.Padding, ContentLayout.SortOrder = UDim.new(0, 8), Enum.SortOrder.
 Z.GUI = { Hub = Hub, Main = Main, Sidebar = Sidebar, Scroll = Scroll, Content = Content, TabTitle = TabTitle }
 function Z.GUI.Clear() for _, v in ipairs(Scroll:GetChildren()) do if not v:IsA("UIListLayout") then v:Destroy() end end end
 
--- BOTÕES DO TOPO
 local function TopBtn(icon, color, offset)
     local b = Instance.new("TextButton", Main)
     b.Size, b.Position, b.Text, b.Font, b.TextSize, b.TextColor3, b.BackgroundColor3, b.BorderSizePixel, b.AutoButtonColor, b.ZIndex = UDim2.fromOffset(28, 28), UDim2.new(1, offset, 0, 10), icon, Enum.Font.GothamBold, 14, Colors.Text, color, 0, false, 10
@@ -181,7 +144,6 @@ local function TopBtn(icon, color, offset)
 end
 local MinBtn, CloseBtn = TopBtn("─", Colors.Card, -76), TopBtn("✕", Colors.Danger, -40)
 
--- MOSTRAR / ESCONDER
 function Z.ShowHub()
     Shadow.Visible, Main.Visible, Main.Size, Main.BackgroundTransparency, Sidebar.BackgroundTransparency, Shadow.BackgroundTransparency = true, true, UDim2.fromOffset(0, 0), 1, 1, 1
     TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(650, 480), BackgroundTransparency = 0}):Play()
@@ -197,9 +159,6 @@ function Z.HideHub(cb)
     t.Completed:Connect(function() Shadow.Visible, Main.Visible, Main.Size = false, false, UDim2.fromOffset(650, 480) if cb then cb() end end)
 end
 
--- ═══════════════════════════════════════════════════════════════════════
--- WIDGETS (Slider, Toggle, Button)
--- ═══════════════════════════════════════════════════════════════════════
 function Z.Sep(text)
     local f = Instance.new("Frame", Scroll)
     f.Size, f.BackgroundTransparency, f.BorderSizePixel = UDim2.new(1, 0, 0, 28), 1, 0
@@ -292,9 +251,6 @@ function Z.Button(name, color, callback)
     return b
 end
 
--- ═══════════════════════════════════════════════════════════════════════
--- SISTEMA DE TABS
--- ═══════════════════════════════════════════════════════════════════════
 local activeTab = nil
 function Z.AddTab(name, icon, callback)
     local btn = Instance.new("TextButton", TabsScroll)
@@ -322,9 +278,6 @@ function Z.AddTab(name, icon, callback)
     return btn
 end
 
--- ═══════════════════════════════════════════════════════════════════════
--- MINIMIZAR / FECHAR
--- ═══════════════════════════════════════════════════════════════════════
 local isMini, Bubble = false, nil
 MinBtn.MouseButton1Click:Connect(function()
     if isMini then return end
@@ -369,22 +322,16 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- ═══════════════════════════════════════════════════════════════════════
--- TABS PADRÃO: HOME E PLAYER (Apenas o básico)
--- ═══════════════════════════════════════════════════════════════════════
 local function LoadHome()
     Z.GUI.Clear()
     Z.GUI.TabTitle.Text = "🏠 Home"
-    
     local card = Instance.new("Frame", Scroll)
     card.Size, card.BackgroundColor3, card.BorderSizePixel = UDim2.new(1, 0, 0, 120), Colors.Card, 0
     Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
     Instance.new("UIStroke", card).Color = Colors.Border
-
     local title = Instance.new("TextLabel", card)
     title.Size, title.Position, title.BackgroundTransparency = UDim2.new(1, -20, 0, 30), UDim2.fromOffset(10, 10), 1
     title.Text, title.Font, title.TextSize, title.TextColor3, title.TextXAlignment = "Bem-vindo ao Zuni Hub", Enum.Font.GothamBold, 16, Colors.Text, Enum.TextXAlignment.Left
-
     local desc = Instance.new("TextLabel", card)
     desc.Size, desc.Position, desc.BackgroundTransparency, desc.Text = UDim2.new(1, -20, 0, 70), UDim2.fromOffset(10, 40), 1, "O melhor hub multi-jogo.\nSelecione uma aba ao lado para começar.\nUse INSERT para esconder/mostrar a interface."
     desc.Font, desc.TextSize, desc.TextColor3, desc.TextXAlignment, desc.TextWrapped = Enum.Font.Gotham, 10, Colors.TextDim, Enum.TextXAlignment.Left, true
@@ -393,31 +340,22 @@ end
 local function LoadPlayer()
     Z.GUI.Clear()
     Z.GUI.TabTitle.Text = "👤 Player"
-    
     Z.Sep("🏃 Movimento")
     Z.Slider("Walk Speed", 16, 200, S.walkSpeed or 16, function(v)
         S.walkSpeed = v
         local char = Player.Character
-        if char and char:FindFirstChildOfClass("Humanoid") then
-            char:FindFirstChildOfClass("Humanoid").WalkSpeed = v
-        end
+        if char and char:FindFirstChildOfClass("Humanoid") then char:FindFirstChildOfClass("Humanoid").WalkSpeed = v end
     end)
     Z.Slider("Jump Power", 50, 200, S.jumpPower or 50, function(v)
         S.jumpPower = v
         local char = Player.Character
-        if char and char:FindFirstChildOfClass("Humanoid") then
-            char:FindFirstChildOfClass("Humanoid").JumpPower = v
-        end
+        if char and char:FindFirstChildOfClass("Humanoid") then char:FindFirstChildOfClass("Humanoid").JumpPower = v end
     end)
 end
 
--- Registra Home e Player
-for _, v in ipairs(TabsScroll:GetChildren()) do
-    if v:IsA("TextButton") then v:Destroy() end
-end
 Z.AddTab("Home", "🏠", LoadHome)
 Z.AddTab("Player", "👤", LoadPlayer)
 
 Z.ShowHub()
 Z.Ready = true
-print("✅ Zuni Hub Base v4.0 Carregada. (Apenas UI e Abas Base)")
+print("✅ Zuni Hub Base v4.1 Carregada.")
