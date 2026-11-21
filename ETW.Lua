@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v7.2                                        ║
+-- ║  ZUNI HUB - ETW MODULE v7.3                                        ║
 -- ║  Grab rápido • Walk real • Auto Rewards • Skip / Pause automático  ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -37,15 +37,15 @@ Def("grabInterval", 150)
 Def("eatInterval", 300)
 Def("throwInterval", 500)
 Def("sellTimerInterval", 12000)
-Def("smartSellThreshold", 5)
+Def("smartSellThreshold", 5)     -- segundos "parado" (com chunk na mão) para vender
 Def("walkInterval", 300)
 Def("walkRadius", 40)
 Def("walkSpeed", 30)
 Def("rewardSpin", true)
 Def("skipInterval", 60)
 Def("skipStuckTime", 15)
-Def("autoPauseAfterSkip", true)   -- pausa o mapa após o skip
-Def("autoPauseDelay", 5)          -- segundos após o skip para pausar
+Def("autoPauseAfterSkip", true)
+Def("autoPauseDelay", 5)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS DO JOGO
@@ -178,7 +178,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 local grabState = { failSince = nil }
 local lastSkip = 0
-local pauseToken = 0          -- incrementa a cada skip para cancelar pauses antigos
+local pauseToken = 0
 
 local function SetMapPaused(v)
     local ev = GetEvent("SetServerSettings")
@@ -194,26 +194,19 @@ local function SkipMap(reason)
         return false
     end
 
-    -- 1) Pula o mapa
     ev:FireServer({ MapTime = SKIP_MAPTIME })
     lastSkip = tick()
     grabState.failSince = nil
-
-    -- 2) Despausa imediatamente (garante que o próximo mapa comece rodando)
     pcall(function() ev:FireServer({ Paused = false }) end)
 
     Z.Notify("Skip Map", reason or "Mapa pulado.", C.Accent, 2)
 
-    -- 3) Agenda o pause automático (se ligado)
     if S.autoPauseAfterSkip then
         pauseToken += 1
         local my = pauseToken
         task.delay(math.max(0.5, S.autoPauseDelay), function()
             if my ~= pauseToken then return end
             if not Z.Alive then return end
-            if not Features.skipTimer or not (Features.skipTimer.running or Features.skipStuck.running) then
-                -- mesmo se as features de skip estiverem desligadas, ainda pausa
-            end
             local ok = SetMapPaused(true)
             if ok then
                 Z.Notify("Auto Pause", "Mapa pausado após " .. S.autoPauseDelay .. "s do skip.", C.Warning, 2)
@@ -255,17 +248,29 @@ NewFeature("sellTimer", "Auto Sell (Timer)", function()
     return S.sellTimerInterval / 1000
 end, { exclusive = "smartSell" })
 
+-- Smart Sell: vende APENAS quando está com chunk na mão e o tamanho parou de crescer
 local smart = { last = -1, stuck = 0 }
-NewFeature("smartSell", "Smart Sell", function()
+NewFeature("smartSell", "Smart Sell (com chunk)", function()
+    local hasChunk = HasChunk()
+
+    -- Se não tem chunk na mão, não vende e zera o contador
+    if not hasChunk then
+        smart.last, smart.stuck = -1, 0
+        return 1
+    end
+
     local cur = GetSize() or 0
     if cur ~= smart.last then
+        -- Tamanho mudou: ainda está crescendo, zera o contador
         smart.last, smart.stuck = cur, 0
     else
+        -- Tamanho igual por 1s com chunk na mão: conta como "parado"
         smart.stuck += 1
     end
+
     if smart.stuck >= S.smartSellThreshold and cur > 0 then
         FireEvent("Sell")
-        Z.Notify("Smart Sell", "Vendendo...", C.Success, 2)
+        Z.Notify("Smart Sell", "Vendendo (chunk parado)...", C.Success, 2)
         smart.stuck = 0
         return 2
     end
@@ -501,8 +506,9 @@ local function LoadMain()
     Z.Sep("💰  VENDA — AUTO SELL")
     FeatureToggle("sellTimer", "Auto Sell (Timer)", "Vende em intervalos fixos")
     Z.Slider("Vender a cada", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v end, { step = 500, suffix = " ms" })
-    FeatureToggle("smartSell", "Smart Sell (Tamanho)", "Vende quando o tamanho para de crescer")
+    FeatureToggle("smartSell", "Smart Sell (com chunk)", "Vende quando você está com chunk na mão e o tamanho parou de crescer")
     Z.Slider("Considerar parado após", 2, 20, S.smartSellThreshold, function(v) S.smartSellThreshold = v end, { suffix = " s" })
+    Z.Info("Só vende se estiver com chunk na mão. Se o tamanho ficar igual por X segundos, vende. Sem chunk, o contador zera.")
 
     -- EXTRAS --------------------------------------------------------------
     Z.Sep("🗑️  EXTRAS — AUTO THROW")
@@ -545,5 +551,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v7.2 carregado!", C.Success, 3)
-print("⚡ ETW Module v7.2 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v7.3 carregado!", C.Success, 3)
+print("⚡ ETW Module v7.3 iniciado")
