@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE (v5.0)                                      ║
--- ║  Separadores visuais, UI bonita, Otimizado                         ║
+-- ║  ZUNI HUB - ETW MODULE (v5.1)                                      ║
+-- ║  Aba Main com separadores visuais e código 100% funcional          ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -17,7 +17,6 @@ local UIS = game:GetService("UserInputService")
 local VIM = game:GetService("VirtualInputManager")
 local RunService = game:GetService("RunService")
 
--- Defaults
 local function Def(k, v) if S[k] == nil then S[k] = v end end
 Def("grabActive", false) Def("grabInterval", 500) Def("grabPauseDuration", 5)
 Def("eatActive", false) Def("eatInterval", 300)
@@ -29,7 +28,6 @@ Def("walkActive", false) Def("walkInterval", 800)
 local F = { grab = false, eat = false, throw = false, sellTimer = false, smartSell = false, walk = false }
 local Gen = { grab = 0, eat = 0, throw = 0, sellTimer = 0, smartSell = 0, walk = 0 }
 
--- Helpers
 local function GetEvents() local c = Player.Character return c and c:FindFirstChild("Events") or nil end
 local function FireEvent(name)
     local ev = GetEvents() and GetEvents():FindFirstChild(name)
@@ -49,7 +47,6 @@ local function HasChunk()
     return false
 end
 
--- Loops (Auto Grab, Eat, Throw, Sell, SmartSell, Walk) - Mantidos iguais
 local function StartGrab()
     Gen.grab += 1 local myGen = Gen.grab
     task.spawn(function()
@@ -104,7 +101,6 @@ local function StartWalk()
 end
 local function StopWalk() F.walk = false; Gen.walk += 1 local hum, hrp = GetHum(), GetHRP() if hum and hrp then hum:MoveTo(hrp.Position) end end
 
--- Setters
 local UI = Z.UI
 local function SetGrab(v) v = not not v F.grab = v S.grabActive = v if UI.grab and UI.grab.SetState then UI.grab:SetState(v, true) end if v then StartGrab() else StopGrab() end end
 local function SetEat(v) v = not not v F.eat = v S.eatActive = v if UI.eat and UI.eat.SetState then UI.eat:SetState(v, true) end if v then StartEat() else StopEat() end end
@@ -114,13 +110,12 @@ local function SetSmartSell(v) v = not not v F.smartSell = v S.smartSellActive =
 local function SetWalk(v) v = not not v F.walk = v S.walkActive = v if UI.walk and UI.walk.SetState then UI.walk:SetState(v, true) end if v then StartWalk() else StopWalk() end end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA MAIN COM SEPARADORES
+-- ABA MAIN (NÃO LIMPA AS OUTRAS ABAS)
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadMain()
     Z.GUI.Clear()
     Z.GUI.TabTitle.Text = "🎮 Main (ETW)"
 
-    -- SEPARADOR: FARM
     Z.Sep("🌾  FARM - AUTO GRAB")
     Z.Info("Pega objetos automaticamente.")
     UI.grab = Z.Toggle("Ativar Auto Grab", F.grab, SetGrab)
@@ -132,7 +127,7 @@ local function LoadMain()
     Z.Slider("Intervalo (ms)", 100, 3000, S.eatInterval, function(v) S.eatInterval = v end)
 
     Z.Sep("💰  FARM - AUTO SELL")
-    Z.Info("Vende por tempo ou por tamanho.")
+    Z.Info("Vende por tempo ou tamanho.")
     UI.sellTimer = Z.Toggle("Auto Sell (Timer)", F.sellTimer, SetSellTimer)
     Z.Slider("Vender a cada (ms)", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v end)
     
@@ -144,25 +139,15 @@ local function LoadMain()
     UI.throw = Z.Toggle("Ativar Auto Throw", F.throw, SetThrow)
     Z.Slider("Intervalo (ms)", 100, 3000, S.throwInterval, function(v) S.throwInterval = v end)
 
-    -- SEPARADOR: MOVIMENTO (como você pediu, ex: PVP, etc)
     Z.Sep("🏃  MOVIMENTO - AUTO WALK")
     Z.Info("Anda aleatoriamente pelo mapa.")
     UI.walk = Z.Toggle("Ativar Auto Walk", F.walk, SetWalk)
-    Z.Slider("Intervalo de passos (ms)", 200, 3000, S.walkInterval, function(v) S.walkInterval = v end)
-    
-    -- Exemplo de como você adicionaria PVP futuramente:
-    -- Z.Sep("⚔️  PVP - COMBATE")
-    -- Z.Button("Ativar Aimbot", C.Danger, function() print("Aimbot") end)
+    Z.Slider("Intervalo (ms)", 200, 3000, S.walkInterval, function(v) S.walkInterval = v end)
 end
 
--- Limpa abas antigas e adiciona a Main
-for _, v in ipairs(Z.GUI.Sidebar:FindFirstChild("ScrollingFrame"):GetChildren()) do
-    if v:IsA("TextButton") then v:Destroy() end
-end
-
+-- Apenas adiciona a aba Main. O Home e Player já foram criados na Base.
 Z.AddTab("Main", "🎮", LoadMain)
 
--- Keybinds Rápidos (G, E, T, V)
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe or not Z.Alive then return end
     if input.KeyCode == Enum.KeyCode.G then SetGrab(not F.grab)
@@ -171,5 +156,5 @@ UIS.InputBegan:Connect(function(input, gpe)
     elseif input.KeyCode == Enum.KeyCode.V then if F.smartSell then SetSmartSell(false); SetSellTimer(true) else SetSellTimer(false); SetSmartSell(true) end end
 end)
 
-Z.Notify("Zuni Hub", "Módulo ETW v5.0 carregado!", C.Success, 3)
-print("⚡ ETW Module v5.0 Iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v5.1 carregado!", C.Success, 3)
+print("⚡ ETW Module v5.1 Iniciado")
