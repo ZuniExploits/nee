@@ -5,12 +5,12 @@
 
 local BASE_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/Zuni_hub_base.lua"
 local ETW_URL  = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/ETW.Lua"
-local KING_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/King.Lua"
+local NDS_URL  = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/NDS.Lua"
 
 -- GameId -> módulo
 local Modules = {
-    [5677613211] = { name = "ETW",  url = ETW_URL },
-    [4520749081] = { name = "King", url = KING_URL },
+    [5677613211] = { name = "ETW", url = ETW_URL },
+    [189707]     = { name = "NDS", url = NDS_URL },
 }
 
 -- ═══════════════════════════════════════════════════════════════════════
