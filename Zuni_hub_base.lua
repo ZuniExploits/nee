@@ -9,6 +9,7 @@ local TweenService       = game:GetService("TweenService")
 local RunService         = game:GetService("RunService")
 local TeleportService    = game:GetService("TeleportService")
 local MarketplaceService = game:GetService("MarketplaceService")
+local TextService        = game:GetService("TextService")
 
 local Player    = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -229,50 +230,84 @@ function Z.Notify(title, text, color, duration)
     if not Z.Alive or not NotifyHolder.Parent then return end
     color, duration = color or Colors.Accent, duration or 4
     notifyN += 1
+    title, text = NoEmoji(title), NoEmoji(text or "")
+
+    -- altura dinâmica conforme o texto
+    local textH = 0
+    if text ~= "" then
+        local ok, sz = pcall(function()
+            return TextService:GetTextSize(text, 12, F_REG, Vector2.new(294, 1000))
+        end)
+        textH = ok and sz.Y or 16
+    end
+    local H = math.max(54, 32 + textH + 16)
 
     local slot = New("Frame", {
         Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, LayoutOrder = notifyN,
     }, NotifyHolder)
     local mover = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 76), Position = UDim2.fromOffset(70, 0), BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, H), Position = UDim2.fromOffset(70, 0), BackgroundTransparency = 1,
     }, slot)
+
+    -- glow suave atrás do toast
+    local glow = New("Frame", {
+        Size = UDim2.new(1, 6, 1, 6), Position = UDim2.fromOffset(-3, -3), BackgroundTransparency = 1, BorderSizePixel = 0,
+    }, mover)
+    Corner(glow, 16)
+    local glowStroke = Stroke(glow, color, 3, 1)
+
     local toast = New("CanvasGroup", {
-        Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 0.05,
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 0.02,
         BorderSizePixel = 0, GroupTransparency = 1,
     }, mover)
-    Corner(toast, 12)
-    Gradient(toast, Colors.Card:Lerp(color, 0.18), Colors.Bg, 20)
+    Corner(toast, 13)
+    Gradient(toast, Colors.Card:Lerp(color, 0.1), Colors.Bg, 0)
+
     local outline = New("Frame", {
         Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 5,
     }, mover)
-    Corner(outline, 12)
-    local st = Stroke(outline, color, 1.2, 1)
+    Corner(outline, 13)
+    local st = Stroke(outline, color, 1, 1)
 
-    local accentBar = New("Frame", {
-        Size = UDim2.new(0, 4, 1, -24), Position = UDim2.fromOffset(10, 12),
-        BackgroundColor3 = WHITE, BorderSizePixel = 0,
+    -- faixa de cor à esquerda (recortada pelo canto arredondado)
+    local strip = New("Frame", {
+        Size = UDim2.new(0, 3, 1, 0), BackgroundColor3 = WHITE, BorderSizePixel = 0,
     }, toast)
-    Corner(accentBar, 2)
-    Gradient(accentBar, color:Lerp(WHITE, 0.35), color, 90)
+    Gradient(strip, color:Lerp(WHITE, 0.3), color, 90)
 
-    Label(toast, NoEmoji(title), 14, Colors.Text, F_BOLD, UDim2.fromOffset(24, 10), UDim2.new(1, -36, 0, 20))
-    New("TextLabel", {
-        BackgroundTransparency = 1, Text = NoEmoji(text or ""), Font = F_REG, TextSize = 12, TextColor3 = Colors.TextDim,
-        TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-        Position = UDim2.fromOffset(24, 32), Size = UDim2.new(1, -36, 0, 30),
+    -- ponto de cor ao lado do título
+    local dot = New("Frame", {
+        Size = UDim2.fromOffset(8, 8), Position = UDim2.fromOffset(16, 15), BackgroundColor3 = color, BorderSizePixel = 0,
+    }, toast)
+    Corner(dot, 4)
+    Stroke(dot, color, 3, 0.75)
+
+    Label(toast, title, 13, Colors.Text, F_BOLD, UDim2.fromOffset(32, 9), UDim2.new(1, -46, 0, 20))
+    if text ~= "" then
+        New("TextLabel", {
+            BackgroundTransparency = 1, Text = text, Font = F_REG, TextSize = 12, TextColor3 = Colors.TextDim,
+            TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+            Position = UDim2.fromOffset(32, 31), Size = UDim2.new(1, -46, 0, textH),
+        }, toast)
+    end
+
+    -- barra de progresso fina no rodapé
+    New("Frame", {
+        Size = UDim2.new(1, 0, 0, 3), Position = UDim2.new(0, 0, 1, -3),
+        BackgroundColor3 = WHITE, BackgroundTransparency = 0.94, BorderSizePixel = 0,
     }, toast)
     local bar = New("Frame", {
-        Size = UDim2.new(1, -28, 0, 3), Position = UDim2.new(0, 14, 1, -9),
+        Size = UDim2.new(1, 0, 0, 3), Position = UDim2.new(0, 0, 1, -3),
         BackgroundColor3 = WHITE, BorderSizePixel = 0,
     }, toast)
-    Corner(bar, 2)
     Gradient(bar, color, color:Lerp(WHITE, 0.45), 0)
 
     local ease = Enum.EasingStyle.Quad
-    Tween(slot, 0.25, { Size = UDim2.new(1, 0, 0, 76) }, ease)
-    Tween(mover, 0.35, { Position = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Back)
+    Tween(slot, 0.25, { Size = UDim2.new(1, 0, 0, H) }, ease)
+    Tween(mover, 0.4, { Position = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Quint)
     Tween(toast, 0.3, { GroupTransparency = 0 }, ease)
-    Tween(st, 0.3, { Transparency = 0.35 }, ease)
+    Tween(st, 0.3, { Transparency = 0.5 }, ease)
+    Tween(glowStroke, 0.3, { Transparency = 0.88 }, ease)
     Tween(bar, duration, { Size = UDim2.new(0, 0, 0, 3) }, Enum.EasingStyle.Linear)
 
     task.delay(duration, function()
@@ -280,6 +315,7 @@ function Z.Notify(title, text, color, duration)
         Tween(mover, 0.25, { Position = UDim2.fromOffset(70, 0) }, ease, Enum.EasingDirection.In)
         Tween(toast, 0.25, { GroupTransparency = 1 }, ease, Enum.EasingDirection.In)
         Tween(st, 0.25, { Transparency = 1 }, ease, Enum.EasingDirection.In)
+        Tween(glowStroke, 0.25, { Transparency = 1 }, ease, Enum.EasingDirection.In)
         task.delay(0.22, function()
             if not slot.Parent then return end
             local tw = Tween(slot, 0.2, { Size = UDim2.new(1, 0, 0, 0) }, ease)
@@ -660,7 +696,7 @@ function Z.Button(name, color, callback)
         BorderSizePixel = 0, AutoButtonColor = false, LayoutOrder = NextOrder(),
     }, Scroll)
     Corner(b, 14)
-    Gradient(b, WHITE, SOFT_GRAY, 90)
+    Gradient(b, WHITE, Color3.fromRGB(224, 227, 242), 90)
     local st = Stroke(b, Colors.Border, 1, 0.5)
     local press = New("UIScale", { Scale = 1 }, b)
     -- espaço à direita (48px) reservado para o ícone do mouse
@@ -703,22 +739,46 @@ end
 -- ── Dropdowns (helpers compartilhados) ────────────────────────────────
 local function MakeSelect(card, selY, text, hasValue)
     local btn = New("TextButton", {
-        Size = UDim2.new(1, -36, 0, 32), Position = UDim2.fromOffset(18, selY),
-        BackgroundColor3 = Colors.CardHover, Text = "", AutoButtonColor = false, BorderSizePixel = 0,
+        Size = UDim2.new(1, -36, 0, 34), Position = UDim2.fromOffset(18, selY),
+        BackgroundColor3 = Colors.Bg, BackgroundTransparency = 0.25, Text = "", AutoButtonColor = false, BorderSizePixel = 0,
     }, card)
-    Corner(btn, 9)
-    Gradient(btn, WHITE, Color3.fromRGB(184, 190, 218), 90)
-    local st = Stroke(btn, Colors.Border, 1, 0.4)
-    local val = Label(btn, text, 13, hasValue and Colors.Text or Colors.TextMuted, F_MED, UDim2.fromOffset(12, 0), UDim2.new(1, -44, 1, 0))
-    local arrow = Label(btn, Icon("chevron-down"), 16, Colors.TextDim, F_BOLD, UDim2.new(1, -32, 0, 0), UDim2.fromOffset(24, 32), Enum.TextXAlignment.Center)
+    Corner(btn, 10)
+    Gradient(btn, WHITE, Color3.fromRGB(176, 182, 212), 90)
+    local st = Stroke(btn, Colors.Border, 1, 0.35)
+
+    local dot = New("Frame", {
+        Size = UDim2.fromOffset(6, 6), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 13, 0.5, 0),
+        BackgroundColor3 = Colors.Accent, BorderSizePixel = 0,
+    }, btn)
+    Corner(dot, 3)
+    local val = Label(btn, text, 13, hasValue and Colors.Text or Colors.TextMuted, F_MED, UDim2.fromOffset(28, 0), UDim2.new(1, -72, 1, 0))
+
+    New("Frame", {
+        Size = UDim2.new(0, 1, 1, -14), Position = UDim2.new(1, -38, 0, 7),
+        BackgroundColor3 = Colors.Border, BackgroundTransparency = 0.5, BorderSizePixel = 0,
+    }, btn)
+    local arrow = Label(btn, Icon("chevron-down"), 16, Colors.TextDim, F_BOLD, UDim2.new(1, -38, 0, 0), UDim2.fromOffset(38, 34), Enum.TextXAlignment.Center)
     arrow.RichText = true
+
+    -- estado visual "aberto" acompanha a rotação da seta
+    local open = false
+    arrow:GetPropertyChangedSignal("Rotation"):Connect(function()
+        local o = arrow.Rotation > 90
+        if o ~= open then
+            open = o
+            Tween(st, 0.15, { Color = open and Colors.Accent or Colors.Border, Transparency = open and 0.1 or 0.35 })
+            Tween(arrow, 0.15, { TextColor3 = open and Colors.AccentLight or Colors.TextDim })
+        end
+    end)
     btn.MouseEnter:Connect(function()
-        Tween(btn, 0.15, { BackgroundColor3 = Colors.CardHover:Lerp(WHITE, 0.1) })
+        if open then return end
+        Tween(btn, 0.15, { BackgroundTransparency = 0.1 })
         Tween(st, 0.15, { Color = Colors.Accent, Transparency = 0.3 })
     end)
     btn.MouseLeave:Connect(function()
-        Tween(btn, 0.15, { BackgroundColor3 = Colors.CardHover })
-        Tween(st, 0.15, { Color = Colors.Border, Transparency = 0.4 })
+        if open then return end
+        Tween(btn, 0.15, { BackgroundTransparency = 0.25 })
+        Tween(st, 0.15, { Color = Colors.Border, Transparency = 0.35 })
     end)
     return btn, val, arrow
 end
@@ -731,17 +791,17 @@ local function MakeList(card)
         BorderSizePixel = 0, Visible = false, ZIndex = 55,
     }, Popup)
     local holder = New("ScrollingFrame", {
-        Size = UDim2.fromOffset(0, 0), BackgroundColor3 = Colors.Bg, BackgroundTransparency = 1,
-        BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Colors.Accent,
+        Size = UDim2.fromOffset(0, 0), BackgroundColor3 = WHITE, BackgroundTransparency = 1,
+        BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Colors.Accent, ScrollBarImageTransparency = 0.35,
         CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false, ZIndex = 60,
     }, Popup)
-    Corner(holder, 12)
+    Corner(holder, 14)
+    Gradient(holder, Color3.fromRGB(26, 28, 44), Color3.fromRGB(14, 15, 26), 90)
     local st = Stroke(holder, Colors.Accent, 1, 1)
-    New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, holder)
+    New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) }, holder)
     New("UIPadding", {
-        PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4),
+        PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 8),
     }, holder)
-    -- some junto com o card quando a aba muda
     card.Destroying:Connect(function()
         pcall(function() holder:Destroy() end)
         pcall(function() catcher:Destroy() end)
@@ -750,25 +810,25 @@ local function MakeList(card)
 end
 
 local function ShowList(holder, st, selectBtn, count)
-    local want = math.min(200, count * 30 + 12)
+    local want = math.min(220, count * 36 + 12)
     local sc = math.max(WinScale.Scale, 0.01)
     local bp = (selectBtn.AbsolutePosition - Main.AbsolutePosition) / sc
     local bs = selectBtn.AbsoluteSize / sc
     local w = math.min(WIN_W - 16, bs.X + 70)                      -- mais larga que o botão
     local x = math.clamp(bp.X - 35, 8, WIN_W - 8 - w)
-    local spaceBelow = WIN_H - 8 - (bp.Y + bs.Y + 4)
-    local spaceAbove = bp.Y - 4 - 8
+    local spaceBelow = WIN_H - 8 - (bp.Y + bs.Y + 6)
+    local spaceAbove = bp.Y - 6 - 8
     local up = want > spaceBelow and spaceAbove > spaceBelow        -- abre pra cima se faltar espaço
-    local h = math.max(44, math.min(want, up and spaceAbove or spaceBelow))
+    local h = math.max(48, math.min(want, up and spaceAbove or spaceBelow))
 
     holder.AnchorPoint = Vector2.new(0, up and 1 or 0)
-    holder.Position = UDim2.fromOffset(x, up and (bp.Y - 4) or (bp.Y + bs.Y + 4))
+    holder.Position = UDim2.fromOffset(x, up and (bp.Y - 6) or (bp.Y + bs.Y + 6))
     holder.Size = UDim2.fromOffset(w, 0)
     holder.BackgroundTransparency = 1
     st.Transparency = 1
     holder.Visible = true
-    Tween(holder, 0.22, { Size = UDim2.fromOffset(w, h), BackgroundTransparency = 0.03 })
-    Tween(st, 0.22, { Transparency = 0.3 })
+    Tween(holder, 0.24, { Size = UDim2.fromOffset(w, h), BackgroundTransparency = 0.02 }, Enum.EasingStyle.Quint)
+    Tween(st, 0.24, { Transparency = 0.4 })
 end
 
 local function HideList(holder, st)
@@ -776,22 +836,31 @@ local function HideList(holder, st)
     Tween(st, 0.16, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 end
 
+-- Item: botão sem texto + label filha (assim o gradiente do hover não "pinta" o texto)
 local function MakeItem(parent, text, order, selected, onClick)
+    local restT = selected and 0.8 or 1
     local item = New("TextButton", {
-        Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Colors.Accent, BackgroundTransparency = 1,
-        Text = tostring(text), Font = F_MED, TextSize = 13,
-        TextColor3 = selected and Colors.AccentLight or Colors.TextDim,
-        TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
-        AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = order, ZIndex = 61,
+        Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = WHITE, BackgroundTransparency = restT,
+        Text = "", AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = order,
     }, parent)
-    Corner(item, 8)
-    New("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 8) }, item)
-    Gradient(item, WHITE, Color3.fromRGB(168, 178, 236), 0)
+    Corner(item, 9)
+    Gradient(item, Colors.Accent, Colors.Purple, 0)
+    local lbl = Label(item, tostring(text), 13, selected and Colors.AccentLight or Colors.TextDim,
+        selected and F_BOLD or F_MED, UDim2.fromOffset(14, 0), UDim2.new(1, -38, 1, 0))
+    if selected then
+        local dot = New("Frame", {
+            Size = UDim2.fromOffset(6, 6), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0),
+            BackgroundColor3 = Colors.AccentLight, BorderSizePixel = 0,
+        }, item)
+        Corner(dot, 3)
+    end
     item.MouseEnter:Connect(function()
-        Tween(item, 0.12, { BackgroundTransparency = 0.45, TextColor3 = Colors.Text })
+        Tween(item, 0.12, { BackgroundTransparency = selected and 0.65 or 0.82 })
+        Tween(lbl, 0.12, { TextColor3 = Colors.Text })
     end)
     item.MouseLeave:Connect(function()
-        Tween(item, 0.12, { BackgroundTransparency = 1, TextColor3 = selected and Colors.AccentLight or Colors.TextDim })
+        Tween(item, 0.12, { BackgroundTransparency = restT })
+        Tween(lbl, 0.12, { TextColor3 = selected and Colors.AccentLight or Colors.TextDim })
     end)
     item.MouseButton1Click:Connect(onClick)
     return item
@@ -801,7 +870,7 @@ function Z.Dropdown(name, options, default, callback, desc)
     options = options or {}
     -- layout: título, (descrição), botão de seleção — tudo DENTRO do card
     local selY = desc and 58 or 36
-    local baseH = selY + 32 + 12
+    local baseH = selY + 34 + 12
     local card = Card(baseH)
 
     Label(card, NoEmoji(name), 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, 10), UDim2.new(1, -36, 0, 20))
@@ -872,7 +941,7 @@ end
 function Z.PlayerDropdown(name, callback, desc)
     -- layout: título, (descrição), botão de seleção — tudo DENTRO do card
     local selY = desc and 58 or 36
-    local baseH = selY + 32 + 12
+    local baseH = selY + 34 + 12
     local card = Card(baseH)
 
     Label(card, NoEmoji(name), 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, 10), UDim2.new(1, -36, 0, 20))
@@ -987,13 +1056,19 @@ MakeDraggable(LogoCard, Main, nil, ClampMain)
 -- BOLHA + MOSTRAR / ESCONDER
 -- ═══════════════════════════════════════════════════════════════════════
 local Bubble = New("TextButton", {
-    Size = UDim2.fromOffset(58, 58), Position = UDim2.new(1, -94, 1, -136), Text = "Z",
-    Font = F_BLACK, TextSize = 24, TextColor3 = Colors.Text, BackgroundColor3 = WHITE,
-    AutoButtonColor = false, BorderSizePixel = 0, Visible = false, ZIndex = 50,
+    Size = UDim2.fromOffset(58, 58), Position = UDim2.new(1, -94, 1, -136), Text = "",
+    BackgroundTransparency = 1, AutoButtonColor = false, BorderSizePixel = 0, Visible = false, ZIndex = 50,
 }, Hub)
-Corner(Bubble, 29)
-local bubbleStroke = Stroke(Bubble, Colors.AccentLight, 2.5, 0.25)
-Gradient(Bubble, Colors.Accent, Colors.Purple, 45)
+local bubbleCircle = New("Frame", {
+    Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0,
+}, Bubble)
+Corner(bubbleCircle, 29)
+Gradient(bubbleCircle, Colors.Accent, Colors.Purple, 45)
+local bubbleStroke = Stroke(bubbleCircle, Colors.AccentLight, 2.5, 0.25)
+New("TextLabel", {
+    Name = "Letter", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "Z",
+    Font = F_BLACK, TextSize = 28, TextColor3 = WHITE, ZIndex = 2,
+}, Bubble)
 Bubble.MouseEnter:Connect(function() Tween(bubbleStroke, 0.18, { Transparency = 0, Thickness = 4 }) end)
 Bubble.MouseLeave:Connect(function() Tween(bubbleStroke, 0.18, { Transparency = 0.25, Thickness = 2.5 }) end)
 
