@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v10.5                                       ║
--- ║  Auto Upgrades com Dropdown • Dropdowns da base melhorados         ║
+-- ║  ZUNI HUB - ETW MODULE v11.0 - EDICÃO LEVE                         ║
+-- ║  Auto Rejoin • Dropdowns • Limpeza Total de Memória                ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -19,6 +19,7 @@ local UI     = Z.UI
 local Player = game:GetService("Players").LocalPlayer
 local UIS    = game:GetService("UserInputService")
 local RS     = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- CONFIG
@@ -83,7 +84,14 @@ Def("autoPauseDelay", 5)
 -- Auto Upgrades
 Def("autoUpgradesEnabled", false)
 Def("autoUpgradesInterval", 1000)
-Def("autoUpgradesSelectedName", nil) -- dropdown agora guarda uma string única
+Def("autoUpgradesSelectedName", nil)
+
+-- Auto Rejoin
+Def("autoRejoinEnabled", false)
+Def("autoRejoinFpsLimit", 20)
+Def("autoRejoinTime", 60)
+Def("autoRejoinMinTime", 60)
+Def("autoRejoinMaxTime", 7200)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS
@@ -180,7 +188,7 @@ local function TeleportToPlatform()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES — helpers (igual ShopScript)
+-- AUTO UPGRADES — helpers
 -- ═══════════════════════════════════════════════════════════════════════
 local ItemInfo = nil
 local function GetItemInfo()
@@ -239,9 +247,10 @@ local function GetUpgradeDisplayName(name)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- FEATURES
+-- FEATURES (com gerenciamento de conexões)
 -- ═══════════════════════════════════════════════════════════════════════
 local Features = {}
+local FeatureConns = {} -- Armazena conexões por feature
 
 local function NewFeature(key, label, body, opts)
     opts = opts or {}
@@ -249,6 +258,7 @@ local function NewFeature(key, label, body, opts)
         key = key, label = label, body = body, running = false, gen = 0,
         exclusive = opts.exclusive, onStart = opts.onStart, onStop = opts.onStop,
     }
+    FeatureConns[key] = {} -- Inicializa a tabela de conexões da feature
 end
 
 local function RunLoop(ft)
@@ -268,24 +278,40 @@ local function RunLoop(ft)
     end)
 end
 
+local function CleanupFeature(key)
+    local conns = FeatureConns[key]
+    if conns then
+        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+        table.clear(conns)
+    end
+end
+
 local function SetFeature(key, v, quiet)
     local ft = Features[key]
     if not ft then return end
     v = not not v
     if v == ft.running then return end
+    
+    -- Se desligou, limpa tudo
+    if not v then
+        ft.gen += 1
+        CleanupFeature(key)
+        if ft.onStop then pcall(ft.onStop) end
+    end
+    
     if v and ft.exclusive then SetFeature(ft.exclusive, false, true) end
     ft.running = v
+    
     if v then
         if ft.onStart then pcall(ft.onStart) end
         RunLoop(ft)
-    else
-        ft.gen += 1
-        if ft.onStop then pcall(ft.onStop) end
     end
+    
     local ui = UI[key]
     if ui and ui.Frame.Parent and type(ui.Set) == "function" then
         ui.Set(v, true)
     end
+    
     if not quiet then
         Z.Notify(ft.label, v and "Ativado" or "Desativado", v and C.Success or C.TextDim, 1.5)
     end
@@ -373,8 +399,9 @@ end
 
 task.spawn(function()
     task.wait(1)
-    local okS, RunService = pcall(function() return game:GetService("RunService") end)
-    if not okS or not RunService then return end
+    local okS, _ = pcall(function() return RunService end)
+    if not okS then return end
+    
     local conn = RunService.Heartbeat:Connect(function()
         pcall(function()
             if not Z.Alive then return end
@@ -753,6 +780,50 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
 end, { onStop = function() end })
 
 -- ═══════════════════════════════════════════════════════════════════════
+-- AUTO REJOIN
+-- ═══════════════════════════════════════════════════════════════════════
+local rejoinState = { lowFpsSince = nil }
+
+local function DoRejoin(reason)
+    if not Z.Alive then return end
+    Z.Notify("Auto Rejoin", reason or "Reconectando...", C.Warning, 5)
+    SetFeature("autoRejoin", false, true) 
+    task.wait(1)
+    pcall(function()
+        game:GetService("TeleportService"):Teleport(game.PlaceId, Player)
+    end)
+end
+
+NewFeature("autoRejoin", "Auto Rejoin (por lag)", function()
+    if not S.autoRejoinEnabled then return 1 end
+    
+    local sessionTime = tick() - Z.StartTime
+    if sessionTime >= S.autoRejoinMaxTime then
+        DoRejoin("Tempo máximo de sessão atingido (" .. math.floor(S.autoRejoinMaxTime / 60) .. " min). Rejoin forçado.")
+        return 1
+    end
+
+    local fps = Z.FPS
+    local now = tick()
+
+    if fps < S.autoRejoinFpsLimit then
+        if not rejoinState.lowFpsSince then
+            rejoinState.lowFpsSince = now
+        elseif (now - rejoinState.lowFpsSince) >= math.max(5, S.autoRejoinTime) then
+            if sessionTime >= S.autoRejoinMinTime then
+                DoRejoin(string.format("FPS abaixo de %d por %ds. Reconectando...", S.autoRejoinFpsLimit, S.autoRejoinTime))
+            else
+                rejoinState.lowFpsSince = now
+            end
+        end
+    else
+        rejoinState.lowFpsSince = nil
+    end
+
+    return 1
+end, { onStart = function() rejoinState.lowFpsSince = nil end, onStop = function() rejoinState.lowFpsSince = nil end })
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- PRESETS
 -- ═══════════════════════════════════════════════════════════════════════
 local function ApplyPreset(name)
@@ -905,6 +976,10 @@ local function LoadMain()
         for key in pairs(Features) do SetFeature(key, false, true) end
         ResetAutoOff(); ResetSizeStuck()
         Z.Notify("ETW", "Todas as funções desligadas.", C.TextDim, 2)
+    end)
+    Z.Button("🧹  Limpar Memória (Garbage Collector)", C.Purple, function()
+        collectgarbage("collect")
+        Z.Notify("Sistema", "Memória limpa (Garbage Collector executado).", C.Success, 2)
     end)
 end
 
@@ -1072,7 +1147,6 @@ local function LoadAutoUpgrades()
     Z.Sep("⚡  AUTO UPGRADES")
     Z.Info("Selecione qual upgrade o bot deve comprar automaticamente (somente se tiver Cubes). O Auto Upgrade tenta comprar a cada 1s.")
 
-    -- Prepara a lista de opções formatadas e um mapa delas para os nomes internos
     local options = {}
     local mapToInternal = {}
     
@@ -1082,7 +1156,6 @@ local function LoadAutoUpgrades()
         mapToInternal[display] = name
     end
 
-    -- Dropdown de seleção única
     local dropdownObj = Z.Dropdown("Upgrade Alvo", options, nil, function(selectedDisplay)
         if selectedDisplay then
             S.autoUpgradesSelectedName = mapToInternal[selectedDisplay]
@@ -1092,7 +1165,6 @@ local function LoadAutoUpgrades()
         end
     end, "Qual upgrade deve ser comprado automaticamente?")
 
-    -- Define o valor inicial do dropdown caso já tenha um salvo
     if S.autoUpgradesSelectedName then
         for display, internal in pairs(mapToInternal) do
             if internal == S.autoUpgradesSelectedName then
@@ -1114,6 +1186,40 @@ local function LoadAutoUpgrades()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
+-- ABA: AUTO REJOIN
+-- ═══════════════════════════════════════════════════════════════════════
+local function LoadAutoRejoin()
+    Z.Sep("🔄  AUTO REJOIN (LAG)")
+    FeatureToggle("autoRejoin", "Auto Rejoin (Lag)", "Reconecta automaticamente se o jogo começar a lagar muito (FPS baixo).")
+    Z.Info("Evita que o jogo trave de vez. Ele espera o tempo mínimo antes de reconectar.")
+    
+    Z.Toggle("Ativar Auto Rejoin", S.autoRejoinEnabled, function(v) 
+        S.autoRejoinEnabled = v 
+    end, "Liga/desliga o Auto Rejoin.")
+    
+    Z.Slider("Limite de FPS (Mínimo)", 5, 60, S.autoRejoinFpsLimit, function(v) 
+        S.autoRejoinFpsLimit = v 
+    end, { suffix = " FPS" })
+    Z.Info("Se o FPS ficar abaixo desse valor, o script começa a contar.")
+
+    Z.Slider("Tempo de lag até rejoin", 10, 300, S.autoRejoinTime, function(v) 
+        S.autoRejoinTime = v 
+    end, { suffix = " s" })
+    Z.Info("Quanto tempo o FPS precisa ficar baixo para ele reconectar.")
+
+    Z.Sep("⏱️  TEMPO DE SESSÃO")
+    Z.Slider("Tempo mínimo", 60, 7200, S.autoRejoinMinTime, function(v) 
+        S.autoRejoinMinTime = v 
+    end, { step = 60, suffix = " s" })
+    Z.Info("Tempo mínimo que você precisa ficar no servidor antes do Auto Rejoin agir. Padrão: 1 minuto.")
+    
+    Z.Slider("Tempo máximo", 60, 7200, S.autoRejoinMaxTime, function(v) 
+        S.autoRejoinMaxTime = v 
+    end, { step = 60, suffix = " s" })
+    Z.Info("Tempo máximo de farm na mesma sala. Ao atingir, ele reconecta forçado. Padrão: 2 horas.")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- REGISTRO DAS ABAS
 -- ═══════════════════════════════════════════════════════════════════════
 Z.AddTab("Main",        "🎮", LoadMain)
@@ -1124,6 +1230,7 @@ Z.AddTab("Rewards",     "🎁", LoadRewards)
 Z.AddTab("Map",         "🗺️", LoadMap)
 Z.AddTab("Unstuck",     "📏", LoadUnstuck)
 Z.AddTab("Auto Upgrades","⚡", LoadAutoUpgrades)
+Z.AddTab("Auto Rejoin", "🔄", LoadAutoRejoin)
 Z.AddTab("Presets",     "📦", LoadPresets)
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1146,5 +1253,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v10.5 carregado!", C.Success, 3)
-print("⚡ ETW Module v10.5 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v11.0 (Leve) carregado!", C.Success, 3)
+print("⚡ ETW Module v11.0 - Edição Leve iniciado")
