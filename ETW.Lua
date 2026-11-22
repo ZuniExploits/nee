@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
 -- ║  ZUNI HUB - ETW MODULE v9.3                                        ║
--- ║  Grab Único • Eat contínuo • Walk temporário em falha • Bedrock    ║
+-- ║  Grab Único • Contador de Tentativas • Skip após 3 Falhas          ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -31,6 +31,7 @@ local Keys = {
 }
 local GROUP_ID     = 10587104
 local SKIP_MAPTIME = 0
+local MAX_GRAB_ATTEMPTS = 3   -- tenta 3x; se falhar todas, pula o mapa
 
 local function Def(k, v) if S[k] == nil then S[k] = v end end
 Def("eatInterval", 50)
@@ -55,6 +56,7 @@ Def("bedrockSkipTime", 4.0)
 Def("skipOnSmartSell", false)
 Def("autoOffGrabThreshold", 5.0)
 Def("autoOffGrabEnabled", true)
+Def("grabMaxAttempts", MAX_GRAB_ATTEMPTS)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS DO JOGO
@@ -205,6 +207,7 @@ end
 local grabState = { failSince = nil, lastGrabAt = 0, lastPos = nil, stuckSince = nil }
 local lastSkip = 0
 local pauseToken = 0
+local grabAttempts = 0   -- contador de tentativas consecutivas que falharam
 
 local function SetMapPaused(v)
     local ev = GetEvent("SetServerSettings")
@@ -223,6 +226,7 @@ local function SkipMap(reason)
     lastSkip = tick()
     grabState.failSince = nil
     grabState.stuckSince = nil
+    grabAttempts = 0   -- reseta contador ao pular mapa
     pcall(function() ev:FireServer({ Paused = false }) end)
     Z.Notify("Skip Map", reason or "Mapa pulado.", C.Accent, 2)
     if S.autoPauseAfterSkip then
@@ -322,47 +326,28 @@ task.spawn(function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- WALK TEMPORÁRIO (ligado em falha do Grab, desligado depois se estava off)
--- ═══════════════════════════════════════════════════════════════════════
-local tempWalk = { active = false, wasOn = false, token = 0 }
-
-local function StartTempWalk()
-    if tempWalk.active then return end
-    tempWalk.active = true
-    tempWalk.wasOn = Features.walk and Features.walk.running or false
-    tempWalk.token += 1
-    if not tempWalk.wasOn then
-        SetFeature("walk", true, true)
-    end
-    local my = tempWalk.token
-    task.delay(math.max(0.5, S.grabFailMoveDuration), function()
-        if my ~= tempWalk.token then return end
-        if not tempWalk.active then return end
-        tempWalk.active = false
-        -- Só desliga se o walk NÃO estava ligado antes
-        if not tempWalk.wasOn and Features.walk and Features.walk.running then
-            SetFeature("walk", false, true)
-            Z.Notify("Auto Walk", "Desligado (era temporário).", C.TextDim, 2)
-        end
-    end)
-end
-
-local function StopTempWalk()
-    if not tempWalk.active then return end
-    tempWalk.active = false
-    tempWalk.token += 1
-    if not tempWalk.wasOn and Features.walk and Features.walk.running then
-        SetFeature("walk", false, true)
-    end
-end
-
--- ═══════════════════════════════════════════════════════════════════════
 -- GRAB (SÓ UMA VEZ quando não tiver chunk, só re-tenta após perder chunk)
 -- ═══════════════════════════════════════════════════════════════════════
+local grabFallback = { walking = false, wasWalkOn = false, moveUntil = 0 }
 local grabCooldown = { until_ = 0 }
 local bedrockState = { since = nil }
 local grabTried = false       -- já disparou o Grab desde que perdeu o chunk
 local grabSucceeded = false   -- conseguiu chunk em algum momento durante a tentativa
+
+local function StartTempWalk()
+    if grabFallback.walking then return end
+    grabFallback.wasWalkOn = Features.walk and Features.walk.running or false
+    grabFallback.walking = true
+    SetFeature("walk", true, true)
+end
+
+local function StopTempWalk()
+    if not grabFallback.walking then return end
+    grabFallback.walking = false
+    if not grabFallback.wasWalkOn then
+        SetFeature("walk", false, true)
+    end
+end
 
 local function ResetGrab()
     grabState.failSince = nil
@@ -372,18 +357,19 @@ local function ResetGrab()
     grabCooldown.until_ = 0
     grabTried = false
     grabSucceeded = false
+    grabAttempts = 0
     StopTempWalk()
 end
 
 NewFeature("grab", "Auto Grab", function()
-    -- Se ele JÁ TEM chunk, não tenta pegar. Marca sucesso e reseta a flag.
+    -- Se ele JÁ TEM chunk, não tenta pegar. Marca sucesso e reseta as flags.
     if HasChunk() then
-        grabSucceeded = true
-        grabTried = false
+        grabSucceeded = true      -- confirma que o grab deu certo
+        grabTried = false         -- pode tentar de novo quando perder o chunk
         grabState.failSince = nil
         grabState.stuckSince = nil
         grabCooldown.until_ = 0
-        if tempWalk.active then
+        if grabFallback.walking and tick() >= grabFallback.moveUntil then
             StopTempWalk()
         end
         return 0.05
@@ -409,7 +395,7 @@ NewFeature("grab", "Auto Grab", function()
             if not (Features.walk and Features.walk.running) then
                 StartTempWalk()
                 task.delay(S.grabWalkWait, function()
-                    if tempWalk.active and not (Features.walk and Features.walk.running) then
+                    if grabFallback.walking and not (Features.walk and Features.walk.running) then
                         StopTempWalk()
                     end
                 end)
@@ -435,22 +421,36 @@ NewFeature("grab", "Auto Grab", function()
     task.delay(3.0, function()
         if not Features.grab or not Features.grab.running then return end
 
-        -- Sucesso: teve chunk em algum momento durante os 3s
+        -- ✅ Se em algum momento durante os 3s o jogador TEVE chunk, considera sucesso
         if grabSucceeded or HasChunk() then
             grabTried = false
+            grabAttempts = 0   -- resetou o contador de tentativas ao conseguir
             return
         end
 
-        -- ⚠️ FALHOU de verdade após 3s (nunca teve chunk durante a tentativa)
-        grabCooldown.until_ = tick() + S.grabFailCooldown
+        -- ❌ Falhou de verdade após 3s (nunca teve chunk durante a tentativa)
+        grabAttempts += 1
         grabTried = false
+        grabCooldown.until_ = tick() + S.grabFailCooldown
 
-        -- ✅ Liga Auto Walk temporariamente (se estava desligado)
-        if S.grabWalkFallback then
-            StartTempWalk()
+        Z.Notify("Auto Grab",
+            string.format("Tentativa %d/%d falhou. Aguardando %.1fs.",
+                grabAttempts, S.grabMaxAttempts, S.grabFailCooldown),
+            C.Warning, 2)
+
+        -- Se atingiu o máximo de tentativas, pula o mapa
+        if grabAttempts >= S.grabMaxAttempts then
+            Z.Notify("Auto Grab",
+                string.format("Falhou %d vezes seguidas. Pulando mapa.", S.grabMaxAttempts),
+                C.Danger, 3)
+            SkipMap(string.format("Mapa pulado após %d tentativas falhas.", S.grabMaxAttempts))
+            return
         end
 
-        Z.Notify("Auto Grab", "Falhou ao pegar após 3s. Aguardando " .. S.grabFailCooldown .. "s.", C.Warning, 2)
+        if S.grabWalkFallback and not grabFallback.walking then
+            StartTempWalk()
+            grabFallback.moveUntil = tick() + S.grabFailMoveDuration
+        end
     end)
 
     -- Se ficou muito tempo parado (sem chunk), teleporta
@@ -686,9 +686,7 @@ local function ApplyPreset(name)
     grabCooldown.until_ = 0
     grabTried = false
     grabSucceeded = false
-    tempWalk.active = false
-    tempWalk.wasOn = false
-    tempWalk.token += 1
+    grabAttempts = 0
     ResetAutoOff()
     StopTempWalk()
 
@@ -766,6 +764,7 @@ local function LoadMain()
     local stMap    = Z.Stat("Mapa", "—")
     local stReward = Z.Stat("Próxima reward", "—")
     local stActive = Z.Stat("Funções ativas", "0")
+    local stGrabAt = Z.Stat("Tentativas de grab", "0/0")  -- ⬅️ NOVO
     Z.PageLoop(0.5, function()
         pcall(function()
             local sz = GetSize()
@@ -789,6 +788,10 @@ local function LoadMain()
             else stReward.Set(Fmt(nr)) end
             local n = CountActive()
             stActive.Set(tostring(n), n > 0 and C.Success or C.TextDim)
+            -- ⬇️ status do contador de tentativas
+            local maxA = S.grabMaxAttempts or 3
+            stGrabAt.Set(string.format("%d/%d", grabAttempts, maxA),
+                grabAttempts > 0 and C.Warning or C.TextDim)
         end)
     end)
 
@@ -840,9 +843,14 @@ local function LoadMain()
     end, { step = 0.5, suffix = " s" })
     Z.Info("Tempo que o script fica sem tentar pegar após confirmar a falha de 3s.")
 
+    Z.Slider("Máximo de tentativas antes de pular mapa", 1, 20, S.grabMaxAttempts, function(v)
+        S.grabMaxAttempts = v
+    end, { suffix = " tentativas" })
+    Z.Info("Se falhar nessa quantidade de tentativas consecutivas, o mapa é pulado automaticamente. O contador zera ao conseguir pegar.")
+
     Z.Toggle("Movimento aleatório após falha", S.grabWalkFallback, function(v)
         S.grabWalkFallback = v
-    end, "Se não conseguir chunk após 3s, liga o Auto Walk temporariamente")
+    end, "Se não conseguir chunk após 3s, anda aleatoriamente")
     Z.Slider("Duração do movimento", 0.5, 10, S.grabFailMoveDuration, function(v)
         S.grabFailMoveDuration = v
     end, { step = 0.5, suffix = " s" })
