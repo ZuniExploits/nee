@@ -1,7 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v13.2 - EDICÃO LEVE + SALVAMENTO            ║
--- ║  Anti-Void • Presets Editáveis (criar/deletar na hora)             ║
--- ║  Auto Upgrade c/ saldo • Rejoin no mesmo servidor • Botão Rejoin   ║
+-- ║  ZUNI HUB - ETW MODULE v13.5 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  Anti-Void • Auto Upgrade c/ saldo • Rejoin c/ contagem Mega/Normal║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -25,6 +24,8 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local SAVE_FILE = "ZuniETW_Config.json"
 local REJOIN_MIN = 10
+local TELEPORT_MAX = 2
+local TELEPORT_WAIT = 10  -- segundos de espera após cada teleporte
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- CONFIG
@@ -104,8 +105,9 @@ Def("antiVoidPartName", "ZuniAntiVoid")
 Def("antiVoidThickness", 5)
 Def("antiVoidSize", 4000)
 
--- Presets personalizados
-Def("customPresets", {})
+-- Teleporte Mega/Normal (contagem)
+Def("teleportCount", 0)      -- 0, 1, 2
+Def("teleportMapType", "Normal")  -- mapa atual ("Normal" ou "Mega")
 
 -- Estado das Features
 Def("ActiveFeatures", {})
@@ -118,7 +120,6 @@ local function SaveConfig()
     local saveData = {
         settings = S,
         activeFeatures = S.ActiveFeatures,
-        customPresets = S.customPresets,
     }
     local ok, json = pcall(function() return HttpService:JSONEncode(saveData) end)
     if ok then
@@ -134,7 +135,6 @@ local function LoadConfig()
     if ok2 and type(data) == "table" then
         for k, v in pairs(data.settings or {}) do S[k] = v end
         S.ActiveFeatures = data.activeFeatures or {}
-        S.customPresets = data.customPresets or {}
     end
 end
 
@@ -183,6 +183,14 @@ local function GetPurchaseEvent()
         return nil
     end
     return ev
+end
+
+local function GetRequestTeleportEvent()
+    local evs = RS:FindFirstChild("Events")
+    if not evs then return nil end
+    local ev = evs:FindFirstChild("RequestTeleport")
+    if ev and ev:IsA("RemoteEvent") then return ev end
+    return nil
 end
 
 local function GetServerSettings() return RS:FindFirstChild("ServerSettings") end
@@ -609,6 +617,85 @@ local function UnpauseSkipPause(reason)
         end
     end)
     return true
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- TELEPORTE MEGA/NORMAL (contagem persistente, máx 2)
+-- ═══════════════════════════════════════════════════════════════════════
+-- O jogo expõe game.ReplicatedStorage.Events.RequestTeleport.
+-- FireServer("Mega") ou FireServer("Normal") troca o mapa.
+-- Lógica:
+--   1. Deu tempo do rejoin -> teleporta pro mapa OPOSTO ao atual
+--   2. Espera 10s -> teleportCount = 1
+--   3. Teleporta pro mapa OPOSTO de novo (volta ao original) -> espera 10s -> teleportCount = 2
+--   4. Não teleporta mais -> teleportCount = 0
+
+local function GetCurrentMapType()
+    -- Usa o salvo. Se nunca foi setado, tenta inferir pelo PlaceId.
+    return S.teleportMapType or "Normal"
+end
+
+local function SetCurrentMapType(t)
+    S.teleportMapType = t
+    SaveConfig()
+end
+
+local function DoMapTeleport(targetType)
+    local ev = GetRequestTeleportEvent()
+    if not ev then
+        Z.Notify("Teleporte", "RequestTeleport não encontrado!", C.Danger, 3)
+        return false
+    end
+    local ok, err = pcall(function()
+        ev:FireServer(targetType)
+    end)
+    if ok then
+        SetCurrentMapType(targetType)
+        Z.Notify("Teleporte", "Indo para: " .. targetType, C.Success, 2)
+        return true
+    else
+        Z.Notify("Teleporte", "Erro: " .. tostring(err), C.Danger, 3)
+        return false
+    end
+end
+
+-- Executa o ciclo completo de teleporte após o rejoin
+local function RunTeleportCycle(reason)
+    if not Z.Alive then return end
+    local count = tonumber(S.teleportCount) or 0
+    if count >= TELEPORT_MAX then
+        Z.Notify("Teleporte", "Contagem já chegou em " .. TELEPORT_MAX .. ". Resetando para 0.", C.TextDim, 2)
+        S.teleportCount = 0
+        SaveConfig()
+        return
+    end
+
+    -- Passo 1: teleporta pro mapa oposto
+    local current = GetCurrentMapType()
+    local firstTarget = (current == "Mega") and "Normal" or "Mega"
+    Z.Notify("Teleporte", string.format("[%d/%d] Indo para %s...", count + 1, TELEPORT_MAX, firstTarget), C.Accent, 3)
+    if not DoMapTeleport(firstTarget) then return end
+
+    task.wait(TELEPORT_WAIT)
+    if not Z.Alive then return end
+
+    S.teleportCount = count + 1
+    SaveConfig()
+    Z.Notify("Teleporte", string.format("Carregou. Contagem = %d", S.teleportCount), C.Success, 2)
+
+    if S.teleportCount >= TELEPORT_MAX then
+        -- Passo 2: teleporta de volta pro original
+        local secondTarget = (firstTarget == "Mega") and "Normal" or "Mega"
+        Z.Notify("Teleporte", string.format("[%d/%d] Voltando para %s...", S.teleportCount, TELEPORT_MAX, secondTarget), C.Accent, 3)
+        if not DoMapTeleport(secondTarget) then return end
+
+        task.wait(TELEPORT_WAIT)
+        if not Z.Alive then return end
+
+        S.teleportCount = 0
+        SaveConfig()
+        Z.Notify("Teleporte", "Ciclo completo. Contagem resetada para 0. Não teleporta mais.", C.Warning, 4)
+    end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1099,7 +1186,11 @@ NewFeature("autoRejoin", "Auto Rejoin (Lag)", function()
         if not rejoinState.lowFpsSince then
             rejoinState.lowFpsSince = now
         elseif (now - rejoinState.lowFpsSince) >= minTime then
-            DoRejoin(string.format("FPS abaixo de %d por %ds. Reconectando...", S.autoRejoinFpsLimit, minTime))
+            -- ✅ Se o rejoin por lag disparar, faz o ciclo de teleporte Mega/Normal
+            task.spawn(function()
+                RunTeleportCycle("Auto Rejoin (Lag)")
+                DoRejoin(string.format("FPS abaixo de %d por %ds. Reconectando...", S.autoRejoinFpsLimit, minTime))
+            end)
             rejoinState.lowFpsSince = now
         end
     else
@@ -1123,270 +1214,17 @@ NewFeature("rejoinTimer", "Auto Rejoin (Tempo)", function()
     local minInterval = math.max(REJOIN_MIN, tonumber(S.autoRejoinTimeInterval) or REJOIN_MIN)
     local elapsed = tick() - rejoinTimerState.startedAt
     if elapsed >= minInterval then
-        DoRejoin(string.format("Tempo de %s atingido. Reconectando...", Fmt(minInterval)))
+        -- ✅ Se o rejoin por tempo disparar, faz o ciclo de teleporte Mega/Normal
+        task.spawn(function()
+            RunTeleportCycle("Auto Rejoin (Tempo)")
+            DoRejoin(string.format("Tempo de %s atingido. Reconectando...", Fmt(minInterval)))
+        end)
         rejoinTimerState.startedAt = tick()
         return 1
     end
     
     return 1
 end, { onStart = ResetTimerRejoin, onStop = ResetTimerRejoin })
-
--- ═══════════════════════════════════════════════════════════════════════
--- PRESETS — helpers
--- ═══════════════════════════════════════════════════════════════════════
-local BASE_PRESETS = { normal = true, static = true }
-
-local function SnapshotCurrent()
-    local snap = { features = {}, settings = {} }
-    for key, ft in pairs(Features) do
-        if ft.running then snap.features[key] = true end
-    end
-    for _, k in ipairs({
-        "skipOnSmartSell", "grabTeleportEnabled", "grabWalkFallback",
-        "grabBedrockSkipEnabled", "autoOffGrabEnabled", "sizeStuckSkipEnabled",
-        "skipTimerEnabled", "skipStuckEnabled", "autoPauseAfterSkip",
-        "walkSpeed", "walkRadius", "grabFailTeleportDelay", "grabFailCooldown",
-        "sizeStuckThreshold", "sizeStuckRepauseDelay", "autoPauseDelay",
-        "eatInterval", "throwInterval", "sellTimerInterval", "smartSellThreshold",
-        "skipInterval", "skipStuckTime", "antiVoidEnabled",
-    }) do
-        snap.settings[k] = S[k]
-    end
-    return snap
-end
-
-local function ApplySnapshot(snap)
-    for key in pairs(Features) do SetFeature(key, false, true, true) end
-    for k, v in pairs(snap.settings or {}) do S[k] = v end
-    for key, v in pairs(snap.features or {}) do
-        if v and Features[key] then
-            SetFeature(key, true, true, true)
-        end
-    end
-    if S.antiVoidEnabled == nil then S.antiVoidEnabled = true end
-    if S.antiVoidEnabled then
-        CreateAntiVoid()
-    else
-        DestroyAntiVoid()
-    end
-end
-
-local function ApplyPreset(name)
-    if name == "normal" then
-        local snap = {
-            features = { grab = true, eat = true, smartSell = true, rewards = true, sizeStuckSkip = true, walk = true },
-            settings = {
-                skipOnSmartSell = false, grabTeleportEnabled = true, grabWalkFallback = true,
-                grabBedrockSkipEnabled = true, autoOffGrabEnabled = true, sizeStuckSkipEnabled = true,
-                skipTimerEnabled = false, skipStuckEnabled = false, autoPauseAfterSkip = true,
-                walkSpeed = 30, walkRadius = 40, grabFailTeleportDelay = 3.0, grabFailCooldown = 3.0,
-                sizeStuckThreshold = 10.0, sizeStuckRepauseDelay = 5.0, autoPauseDelay = 5,
-                antiVoidEnabled = true,
-            }
-        }
-        ApplySnapshot(snap)
-        Z.Notify("Preset", "Normal Farm ativado (+ Anti-Void).", C.Success, 3)
-
-    elseif name == "static" then
-        local snap = {
-            features = { grab = true, eat = true, smartSell = true, rewards = true, sizeStuckSkip = true, walk = false },
-            settings = {
-                skipOnSmartSell = true, grabTeleportEnabled = true, grabWalkFallback = false,
-                grabBedrockSkipEnabled = true, autoOffGrabEnabled = true, sizeStuckSkipEnabled = true,
-                skipTimerEnabled = false, skipStuckEnabled = false, autoPauseAfterSkip = true,
-                walkSpeed = 16, walkRadius = 40, grabFailTeleportDelay = 3.0, grabFailCooldown = 3.0,
-                sizeStuckThreshold = 10.0, sizeStuckRepauseDelay = 5.0, autoPauseDelay = 5,
-                antiVoidEnabled = true,
-            }
-        }
-        ApplySnapshot(snap)
-        Z.Notify("Preset", "Farm #1 (parado + SkipOnSmartSell) ativado (+ Anti-Void).", C.Success, 3)
-
-    else
-        local custom = S.customPresets[name]
-        if not custom then
-            Z.Notify("Preset", "Preset '" .. tostring(name) .. "' não existe.", C.Danger, 3)
-            return
-        end
-        ApplySnapshot(custom)
-        Z.Notify("Preset", "Preset '" .. name .. "' ativado (+ Anti-Void).", C.Success, 3)
-    end
-    SaveConfig()
-end
-
--- ═══════════════════════════════════════════════════════════════════════
--- PRESETS — gerenciamento de botões dinâmicos
--- ═══════════════════════════════════════════════════════════════════════
--- Como o Zuni Hub não expõe uma API de "remover botão", vamos criar um
--- container próprio dentro da aba Presets e gerenciar os botões nele.
--- A cada criar/deletar, limpamos e recriamos os botões desse container.
-local presetUI = {
-    container = nil,
-    buttons = {},
-}
-
-local function ClearPresetButtons()
-    for _, btn in ipairs(presetUI.buttons) do
-        if btn and btn.Parent then
-            btn:Destroy()
-        end
-    end
-    presetUI.buttons = {}
-end
-
-local function CreatePresetButton(parent, text, color, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 32)
-    btn.BackgroundColor3 = color or Color3.fromRGB(40, 40, 40)
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.Gotham
-    btn.TextSize = 14
-    btn.Text = text
-    btn.BorderSizePixel = 0
-    btn.Parent = parent
-    btn.Activated:Connect(function()
-        pcall(callback)
-    end)
-    table.insert(presetUI.buttons, btn)
-    return btn
-end
-
-local function RenderCustomPresets()
-    ClearPresetButtons()
-    local container = presetUI.container
-    if not container or not container.Parent then return end
-
-    for name, snap in pairs(S.customPresets or {}) do
-        CreatePresetButton(container, "▶  Aplicar: " .. name, Color3.fromRGB(50, 120, 50), function()
-            ApplyPreset(name)
-        end)
-        CreatePresetButton(container, "✏️  Editar: " .. name, Color3.fromRGB(150, 120, 30), function()
-            S.customPresets[name] = SnapshotCurrent()
-            SaveConfig()
-            Z.Notify("Preset", "Preset '" .. name .. "' atualizado com o estado atual.", C.Success, 2.5)
-        end)
-        CreatePresetButton(container, "🗑️  Deletar: " .. name, Color3.fromRGB(150, 40, 40), function()
-            S.customPresets[name] = nil
-            SaveConfig()
-            Z.Notify("Preset", "Preset '" .. name .. "' deletado.", C.TextDim, 2.5)
-            -- ✅ Recria os botões imediatamente (remove o botão do preset deletado)
-            task.defer(RenderCustomPresets)
-        end)
-        -- Espaçador
-        local spacer = Instance.new("Frame")
-        spacer.Size = UDim2.new(1, 0, 0, 6)
-        spacer.BackgroundTransparency = 1
-        spacer.Parent = container
-        table.insert(presetUI.buttons, spacer)
-    end
-end
-
--- ═══════════════════════════════════════════════════════════════════════
--- ABA: PRESETS
--- ═══════════════════════════════════════════════════════════════════════
-local function LoadPresets()
-    Z.Sep("📦  PRESETS BASE")
-    Z.Info("Os dois presets base não podem ser editados nem deletados.")
-    Z.Button("🌾  Normal Farm (andando)", C.Success, function() ApplyPreset("normal") end)
-    Z.Button("🧱  Farm #1 (parado + SkipOnSmartSell)", C.Accent, function() ApplyPreset("static") end)
-
-    Z.Sep("🛠️  PRESETS PERSONALIZADOS")
-    Z.Info("Crie, edite ou delete presets. Os botões aparecem abaixo e são atualizados na hora.")
-
-    -- ✅ Container próprio para os botões dinâmicos
-    local container = Instance.new("Frame")
-    container.Name = "CustomPresetsContainer"
-    container.Size = UDim2.new(1, 0, 0, 0)
-    container.AutomaticSize = Enum.AutomaticSize.Y
-    container.BackgroundTransparency = 1
-    container.Parent = Z.Content or Z.Scroll or Z.Page or Z.MainFrame or Z.Gui or game:GetService("CoreGui")
-    presetUI.container = container
-
-    -- Renderiza os presets existentes
-    RenderCustomPresets()
-
-    Z.Sep("➕  CRIAR NOVO PRESET")
-    Z.Info("Digite um nome e clique em Criar. O preset usa o estado atual (features ligadas + settings).")
-
-    -- TextBox (se o Zuni Hub tiver)
-    local nameBox
-    if Z.TextBox then
-        nameBox = Z.TextBox("Nome do novo preset", "", "Ex: MeuFarm", function(txt) end)
-    elseif Z.Input then
-        nameBox = Z.Input("Nome do novo preset", "", "Ex: MeuFarm")
-    end
-
-    Z.Button("💾  Criar preset com estado atual", C.Success, function()
-        local name
-        if nameBox and type(nameBox.Get) == "function" then
-            name = nameBox.Get()
-        elseif nameBox and type(nameBox.Value) == "string" then
-            name = nameBox.Value
-        end
-        if not name or name == "" then
-            if Z.Prompt then
-                name = Z.Prompt("Nome do preset:", "MeuPreset")
-            else
-                name = "Preset_" .. tostring(os.time())
-            end
-        end
-        name = tostring(name):gsub("%s+", "_")
-        if name == "" then
-            Z.Notify("Preset", "Nome inválido.", C.Danger, 2)
-            return
-        end
-        if BASE_PRESETS[name] then
-            Z.Notify("Preset", "Não pode sobrescrever preset base.", C.Danger, 2)
-            return
-        end
-        if S.customPresets[name] then
-            Z.Notify("Preset", "Já existe um preset com esse nome. Use Editar ou escolha outro.", C.Warning, 2.5)
-            return
-        end
-        S.customPresets[name] = SnapshotCurrent()
-        SaveConfig()
-        Z.Notify("Preset", "Preset '" .. name .. "' criado a partir do estado atual.", C.Success, 3)
-        -- ✅ Recria os botões imediatamente (aparece o novo preset)
-        task.defer(RenderCustomPresets)
-    end)
-
-    Z.Sep("🛡️  ANTI-VOID")
-    Z.Toggle("Anti-Void ativo", S.antiVoidEnabled, function(v)
-        SetAntiVoidEnabled(v)
-    end, "Cria uma Part gigante na posição de workspace.Map.Bedrock (ou fallback) para o player não cair no void.")
-    Z.Slider("Tamanho do Anti-Void", 1000, 10000, S.antiVoidSize, function(v)
-        S.antiVoidSize = v
-        if antiVoidPart and antiVoidPart.Parent then
-            antiVoidPart.Size = Vector3.new(v, S.antiVoidThickness, v)
-        end
-        SaveConfig()
-    end, { step = 500, suffix = " studs" })
-    Z.Slider("Espessura do Anti-Void", 1, 20, S.antiVoidThickness, function(v)
-        S.antiVoidThickness = v
-        if antiVoidPart and antiVoidPart.Parent then
-            antiVoidPart.Size = Vector3.new(S.antiVoidSize, v, S.antiVoidSize)
-        end
-        SaveConfig()
-    end, { step = 1, suffix = " studs" })
-    Z.Button("🧱  Recriar Anti-Void agora", C.Accent, function()
-        DestroyAntiVoid()
-        CreateAntiVoid()
-        Z.Notify("Anti-Void", "Part recriada na posição da Bedrock.", C.Success, 2)
-    end)
-    Z.Button("❌  Destruir Anti-Void agora", C.Danger, function()
-        DestroyAntiVoid()
-        S.antiVoidEnabled = false
-        SaveConfig()
-        Z.Notify("Anti-Void", "Part destruída.", C.TextDim, 2)
-    end)
-
-    Z.Sep("ℹ️  SOBRE")
-    Z.Info("Normal Farm: Grab + Eat + Smart Sell + Rewards + Unstuck + Auto Walk + Teleporte após falha + Anti-Void.\n" ..
-           "Farm #1: parado, com SkipOnSmartSell + Anti-Void.\n" ..
-           "Presets personalizados: criar/editar/deletar com botões atualizados na hora.\n" ..
-           "Anti-Void: Part gigante na Bedrock para evitar queda no void.\n" ..
-           "Rejoin: TeleportToPlaceInstance (mesmo servidor) com fallback para Teleport. Em VIP, vai para servidor público.")
-end
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- ABA: MAIN
@@ -1421,6 +1259,8 @@ local function LoadMain()
     local stSizeStuck = Z.Stat("Size parado há", "—")
     local stCubes  = Z.Stat("Cubes (espelho)", "—")
     local stAnti   = Z.Stat("Anti-Void", "—")
+    local stTpCount = Z.Stat("Teleporte (contagem)", "0/2")
+    local stTpMap  = Z.Stat("Mapa atual", "—")
     Z.PageLoop(0.5, function()
         pcall(function()
             local sz = GetSize()
@@ -1451,6 +1291,9 @@ local function LoadMain()
             stCubes.Set(cubes and tostring(cubes) or "—", cubes and C.Accent or C.TextDim)
             stAnti.Set(antiVoidPart and antiVoidPart.Parent and "Ativa" or "—",
                 antiVoidPart and antiVoidPart.Parent and C.Success or C.TextDim)
+            local tc = tonumber(S.teleportCount) or 0
+            stTpCount.Set(tostring(tc) .. "/" .. TELEPORT_MAX, tc >= TELEPORT_MAX and C.Danger or C.Accent)
+            stTpMap.Set(S.teleportMapType or "—", C.TextDim)
         end)
     end)
 
@@ -1462,9 +1305,21 @@ local function LoadMain()
         Z.Notify("ETW", "Farm completo ativado.", C.Success, 2)
     end)
     Z.Button("⏭  Pular mapa agora", C.Accent, function() SkipMap("Mapa pulado.") end)
-    -- ✅ BOTÃO DE REJOIN MANUAL
     Z.Button("🔄  Dar Rejoin agora", C.Warning, function()
-        DoRejoin("Rejoin manual solicitado.")
+        task.spawn(function()
+            RunTeleportCycle("Rejoin manual")
+            DoRejoin("Rejoin manual solicitado.")
+        end)
+    end)
+    Z.Button("🔁  Ciclo de Teleporte Mega/Normal agora", C.Accent, function()
+        task.spawn(function()
+            RunTeleportCycle("Manual")
+        end)
+    end)
+    Z.Button("🔄  Resetar contagem de teleporte", C.Purple, function()
+        S.teleportCount = 0
+        SaveConfig()
+        Z.Notify("Teleporte", "Contagem resetada para 0.", C.Success, 2)
     end)
     Z.Button("⏹  Desligar tudo", C.Danger, function()
         for key in pairs(Features) do SetFeature(key, false, true) end
@@ -1790,10 +1645,23 @@ end
 local function LoadAutoRejoin()
     Z.Sep("🔄  AUTO REJOIN (LAG)")
     Z.Info("Rejoin usa TeleportToPlaceInstance (mesmo servidor). Se o servidor fechou ou é VIP, cai no Teleport (qualquer servidor).")
+    Z.Info("Ao dar rejoin, o script faz o ciclo de teleporte Mega/Normal com contagem (máx 2).")
 
-    -- ✅ BOTÃO DE REJOIN MANUAL AQUI TAMBÉM
     Z.Button("🔄  Dar Rejoin agora (manual)", C.Warning, function()
-        DoRejoin("Rejoin manual solicitado.")
+        task.spawn(function()
+            RunTeleportCycle("Rejoin manual")
+            DoRejoin("Rejoin manual solicitado.")
+        end)
+    end)
+    Z.Button("🔁  Ciclo de Teleporte Mega/Normal agora", C.Accent, function()
+        task.spawn(function()
+            RunTeleportCycle("Manual")
+        end)
+    end)
+    Z.Button("🔄  Resetar contagem de teleporte", C.Purple, function()
+        S.teleportCount = 0
+        SaveConfig()
+        Z.Notify("Teleporte", "Contagem resetada para 0.", C.Success, 2)
     end)
 
     Z.Toggle("Ativar Auto Rejoin (Lag)", S.autoRejoinEnabled, function(v) 
@@ -1824,20 +1692,23 @@ local function LoadAutoRejoin()
     end, { step = REJOIN_MIN, suffix = " s" })
 
     local stTimer = Z.Stat("Próximo Rejoin (Timer)", "—")
+    local stTpCount = Z.Stat("Teleporte (contagem)", "0/2")
+    local stTpMap = Z.Stat("Mapa atual", "—")
     Z.PageLoop(0.5, function()
         pcall(function()
             if not Features.rejoinTimer or not Features.rejoinTimer.running then
                 stTimer.Set("Desligado", C.TextDim)
-                return
-            end
-            if rejoinTimerState.startedAt == 0 then
+            elseif rejoinTimerState.startedAt == 0 then
                 stTimer.Set("Aguardando...", C.TextDim)
-                return
+            else
+                local minInterval = math.max(REJOIN_MIN, tonumber(S.autoRejoinTimeInterval) or REJOIN_MIN)
+                local elapsed = tick() - rejoinTimerState.startedAt
+                local remaining = math.max(0, minInterval - elapsed)
+                stTimer.Set(Fmt(remaining), remaining <= 60 and C.Danger or C.Success)
             end
-            local minInterval = math.max(REJOIN_MIN, tonumber(S.autoRejoinTimeInterval) or REJOIN_MIN)
-            local elapsed = tick() - rejoinTimerState.startedAt
-            local remaining = math.max(0, minInterval - elapsed)
-            stTimer.Set(Fmt(remaining), remaining <= 60 and C.Danger or C.Success)
+            local tc = tonumber(S.teleportCount) or 0
+            stTpCount.Set(tostring(tc) .. "/" .. TELEPORT_MAX, tc >= TELEPORT_MAX and C.Danger or C.Accent)
+            stTpMap.Set(S.teleportMapType or "—", C.TextDim)
         end)
     end)
 end
@@ -1854,7 +1725,6 @@ Z.AddTab("Map",         "🗺️", LoadMap)
 Z.AddTab("Unstuck",     "📏", LoadUnstuck)
 Z.AddTab("Auto Upgrades","⚡", LoadAutoUpgrades)
 Z.AddTab("Auto Rejoin", "🔄", LoadAutoRejoin)
-Z.AddTab("Presets",     "📦", LoadPresets)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- RESTAURA AS FUNÇÕES ATIVAS (AUTO-START)
@@ -1890,5 +1760,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v13.2 (Rejoin manual + Presets dinâmicos) carregado!", C.Success, 3)
-print("⚡ ETW Module v13.2 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v13.5 (Rejoin c/ ciclo Mega/Normal) carregado!", C.Success, 3)
+print("⚡ ETW Module v13.5 iniciado")
