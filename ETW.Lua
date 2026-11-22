@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v9.1                                        ║
+-- ║  ZUNI HUB - ETW MODULE v9.2                                        ║
 -- ║  Grab Único • Eat contínuo (50ms) • Bedrock • Auto-Off             ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -327,7 +327,8 @@ end)
 local grabFallback = { walking = false, wasWalkOn = false, moveUntil = 0 }
 local grabCooldown = { until_ = 0 }
 local bedrockState = { since = nil }
-local grabTried = false  -- Flag: já tentou pegar desde que perdeu o chunk
+local grabTried = false       -- já disparou o Grab desde que perdeu o chunk
+local grabSucceeded = false   -- conseguiu chunk em algum momento durante a tentativa
 
 local function StartTempWalk()
     if grabFallback.walking then return end
@@ -351,14 +352,15 @@ local function ResetGrab()
     bedrockState.since = nil
     grabCooldown.until_ = 0
     grabTried = false
+    grabSucceeded = false
     StopTempWalk()
 end
 
 NewFeature("grab", "Auto Grab", function()
-    -- Se ele JÁ TEM chunk, não tenta pegar, só espera o próximo ciclo.
+    -- Se ele JÁ TEM chunk, não tenta pegar. Marca sucesso e reseta a flag.
     if HasChunk() then
-        -- Reseta a flag, pois agora tem chunk (quando perder, tenta de novo)
-        grabTried = false
+        grabSucceeded = true      -- confirma que o grab deu certo
+        grabTried = false         -- pode tentar de novo quando perder o chunk
         grabState.failSince = nil
         grabState.stuckSince = nil
         grabCooldown.until_ = 0
@@ -368,7 +370,7 @@ NewFeature("grab", "Auto Grab", function()
         return 0.05
     end
 
-    -- Se já tentou pegar e não tem chunk, não faz nada (espera perder o chunk ou o grab ser resetado)
+    -- Se já tentou e ainda não temos chunk, não dispara de novo
     if grabTried then
         return 0.05
     end
@@ -383,7 +385,7 @@ NewFeature("grab", "Auto Grab", function()
         if now - bedrockState.since >= S.bedrockSkipTime then
             SkipMap("Mapa pulado (preso na Bedrock).")
             bedrockState.since = nil
-            grabTried = false -- permite tentar de novo após skip
+            grabTried = false
         else
             if not (Features.walk and Features.walk.running) then
                 StartTempWalk()
@@ -405,6 +407,7 @@ NewFeature("grab", "Auto Grab", function()
 
     -- Marca que já tentou pegar AGORA (só uma vez)
     grabTried = true
+    grabSucceeded = false
 
     -- Tenta pegar (única vez)
     task.spawn(FireEvent, "Grab")
@@ -412,10 +415,17 @@ NewFeature("grab", "Auto Grab", function()
     -- Verifica falha apenas depois de 3 segundos (3000ms)
     task.delay(3.0, function()
         if not Features.grab or not Features.grab.running then return end
-        if HasChunk() then return end -- Deu certo, pegou chunk!
-        -- Falhou de verdade após 3s
+
+        -- ✅ CORREÇÃO: se em algum momento durante os 3s o jogador TEVE chunk,
+        -- considera sucesso (mesmo que já tenha comido/vendido)
+        if grabSucceeded or HasChunk() then
+            grabTried = false
+            return
+        end
+
+        -- Falhou de verdade após 3s (nunca teve chunk durante a tentativa)
         grabCooldown.until_ = tick() + S.grabFailCooldown
-        grabTried = false -- permite tentar novamente após o cooldown
+        grabTried = false
         if S.grabWalkFallback and not grabFallback.walking then
             StartTempWalk()
             grabFallback.moveUntil = tick() + S.grabFailMoveDuration
@@ -655,6 +665,7 @@ local function ApplyPreset(name)
     grabState.lastPos = nil
     grabCooldown.until_ = 0
     grabTried = false
+    grabSucceeded = false
     ResetAutoOff()
     StopTempWalk()
 
@@ -887,5 +898,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v9.1 carregado!", C.Success, 3)
-print("⚡ ETW Module v9.1 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v9.2 carregado!", C.Success, 3)
+print("⚡ ETW Module v9.2 iniciado")
