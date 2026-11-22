@@ -1,548 +1,499 @@
--- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - NDS MODULE v1.1                                        ║
--- ║  Fling • Aim Fling • Fling All • Safezone • ESP • Utilidades       ║
--- ╚══════════════════════════════════════════════════════════════════════╝
-
-if not _G.ZuniHub or not _G.ZuniHub.Ready then
-    warn("[NDS] Base não está pronta!")
-    return
-end
-
+if not _G.ZuniHub or not _G.ZuniHub.Ready then return end
 local Z = _G.ZuniHub
-if Z.NDSLoaded then return end
-Z.NDSLoaded = true
-Z.ModuleName = "NDS"
+if Z.MeuModuloLoaded then return end
+Z.MeuModuloLoaded = true
+Z.ModuleName = "Counter Blox"
+local C, S, UI = Z.Colors, Z.SavedStates, Z.UI
+local Player = game:GetService("Players").LocalPlayer
 
-local C       = Z.Colors
-local S       = Z.SavedStates
-local UI      = Z.UI
-local Player  = game:GetService("Players").LocalPlayer
-local UIS     = game:GetService("UserInputService")
-local RS      = game:GetService("RunService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
 
--- ═══════════════════════════════════════════════════════════════════════
--- CONFIG
--- ═══════════════════════════════════════════════════════════════════════
-local function Def(k, v) if S[k] == nil then S[k] = v end end
-Def("safezoneHealth", 30)
-Def("safezoneEnabled", false)
-Def("espEnabled", false)
-Def("espName", true)
-Def("espHealth", true)
-Def("espDistance", true)
+-- ============================================================
+-- CONFIGURAÇÕES PADRÃO
+-- ============================================================
+if S.cb_esp_enabled == nil then S.cb_esp_enabled = false end
+if S.cb_esp_box == nil then S.cb_esp_box = true end
+if S.cb_esp_name == nil then S.cb_esp_name = true end
+if S.cb_esp_health == nil then S.cb_esp_health = true end
+if S.cb_esp_weapon == nil then S.cb_esp_weapon = true end
+if S.cb_esp_distance == nil then S.cb_esp_distance = false end
+if S.cb_esp_tracer == nil then S.cb_esp_tracer = true end
+if S.cb_esp_head_dot == nil then S.cb_esp_head_dot = false end
+if S.cb_esp_max_dist == nil then S.cb_esp_max_dist = 500 end
+if S.cb_wallhack_enabled == nil then S.cb_wallhack_enabled = false end
+if S.cb_aimbot_enabled == nil then S.cb_aimbot_enabled = false end
+if S.cb_aimbot_fov == nil then S.cb_aimbot_fov = 120 end
+if S.cb_aimbot_smooth == nil then S.cb_aimbot_smooth = 0.35 end
+if S.cb_aimbot_max_dist == nil then S.cb_aimbot_max_dist = 400 end
+if S.cb_aimbot_key == nil then S.cb_aimbot_key = "RMB" end
 
--- ═══════════════════════════════════════════════════════════════════════
--- HELPERS
--- ═══════════════════════════════════════════════════════════════════════
-local function GetChar(p) p = p or Player return p.Character end
-local function GetHRP(p) local c = GetChar(p) return c and c:FindFirstChild("HumanoidRootPart") end
-local function GetHum(p) local c = GetChar(p) return c and c:FindFirstChildOfClass("Humanoid") end
-local function IsAlive(p) local h = GetHum(p) return h and h.Health > 0 end
-
--- ═══════════════════════════════════════════════════════════════════════
--- WIDGET: PLAYER DROPDOWN
--- ═══════════════════════════════════════════════════════════════════════
-local function PlayerDropdown(name, callback, desc)
-    local card = Z.Card(desc and 62 or 50)
-    card.ClipsDescendants = true
-
-    Z.Util.Label(card, name, 14, C.Text, Enum.Font.GothamBold,
-        UDim2.fromOffset(16, desc and 10 or 0), UDim2.new(1, -32, 0, desc and 20 or 50))
-    if desc then
-        Z.Util.Label(card, desc, 12, C.TextDim, Enum.Font.Gotham,
-            UDim2.fromOffset(16, 33), UDim2.new(1, -32, 0, 20))
-    end
-
-    local selY = desc and 46 or 30
-    local selectBtn = Z.Util.New("TextButton", {
-        Size = UDim2.new(1, -32, 0, 32),
-        Position = UDim2.fromOffset(16, selY),
-        BackgroundColor3 = C.CardHover,
-        Text = "",
-        AutoButtonColor = false,
-        BorderSizePixel = 0,
-    }, card)
-    Z.Util.Corner(selectBtn, 8)
-    Z.Util.Stroke(selectBtn, C.Border, 1, 0.5)
-
-    local valLbl = Z.Util.Label(selectBtn, "Selecionar jogador...", 13, C.TextMuted,
-        Enum.Font.GothamMedium, UDim2.fromOffset(12, 0), UDim2.new(1, -34, 1, 0))
-
-    local listHolder = Z.Util.New("ScrollingFrame", {
-        Size = UDim2.new(1, -32, 0, 0),
-        Position = UDim2.fromOffset(16, selY + 38),
-        BackgroundColor3 = C.Bg,
-        BorderSizePixel = 0,
-        ScrollBarThickness = 3,
-        ScrollBarImageColor3 = C.Accent,
-        CanvasSize = UDim2.new(),
-        AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        Visible = false,
-    }, card)
-    Z.Util.Corner(listHolder, 8)
-    Z.Util.New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, listHolder)
-
-    local selected, isOpen, itemButtons = nil, false, {}
-
-    local function CloseList()
-        if not isOpen then return end
-        isOpen = false
-        Z.Util.Tween(card, 0.15, { Size = UDim2.new(1, 0, 0, desc and 62 or 50) })
-        task.delay(0.15, function()
-            if not isOpen and listHolder.Parent then listHolder.Visible = false end
-        end)
-    end
-
-    local function RenderItems()
-        for _, b in ipairs(itemButtons) do b:Destroy() end
-        table.clear(itemButtons)
-
-        for i, p in ipairs(Players:GetPlayers()) do
-            if p == Player then continue end
-            local item = Z.Util.New("TextButton", {
-                Size = UDim2.new(1, 0, 0, 28),
-                BackgroundColor3 = C.Accent,
-                BackgroundTransparency = 1,
-                Text = "  " .. p.Name,
-                Font = Enum.Font.GothamMedium,
-                TextSize = 13,
-                TextColor3 = C.TextDim,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                AutoButtonColor = false,
-                BorderSizePixel = 0,
-                LayoutOrder = i,
-            }, listHolder)
-            item.MouseEnter:Connect(function() Z.Util.Tween(item, 0.1, { BackgroundTransparency = 0.45 }) end)
-            item.MouseLeave:Connect(function() Z.Util.Tween(item, 0.1, { BackgroundTransparency = 1 }) end)
-            item.MouseButton1Click:Connect(function()
-                selected = p
-                valLbl.Text = p.Name
-                valLbl.TextColor3 = C.Text
-                CloseList()
-                if callback then pcall(callback, p) end
-            end)
-            table.insert(itemButtons, item)
-        end
-    end
-
-    local function OpenList()
-        if isOpen then return end
-        RenderItems()
-        if #itemButtons == 0 then
-            Z.Notify("NDS", "Nenhum outro jogador no servidor.", C.Warning, 2)
-            return
-        end
-        isOpen = true
-        listHolder.Visible = true
-        local h = math.min(150, #itemButtons * 28 + 4)
-        listHolder.Size = UDim2.new(1, -32, 0, h)
-        Z.Util.Tween(card, 0.15, { Size = UDim2.new(1, 0, 0, (desc and 62 or 50) + h + 8) })
-    end
-
-    selectBtn.MouseButton1Click:Connect(function()
-        if isOpen then CloseList() else OpenList() end
-    end)
-
-    Z.PageTrack(Players.PlayerAdded:Connect(function() if isOpen then RenderItems() end end))
-    Z.PageTrack(Players.PlayerRemoving:Connect(function(p)
-        if selected == p then
-            selected = nil
-            valLbl.Text = "Selecionar jogador..."
-            valLbl.TextColor3 = C.TextMuted
-        end
-        if isOpen then RenderItems() end
-    end))
-
-    return {
-        Frame = card,
-        Get = function() return selected end,
-        Set = function(p, silent)
-            selected = p
-            valLbl.Text = p and p.Name or "Selecionar jogador..."
-            valLbl.TextColor3 = p and C.Text or C.TextMuted
-            if not silent and callback then pcall(callback, p) end
-        end,
-    }
-end
-
--- ═══════════════════════════════════════════════════════════════════════
--- FLING
--- ═══════════════════════════════════════════════════════════════════════
-local flingActive = false
-local flingTarget = nil
-local flingConn = nil
-
-local function StopFling()
-    flingActive = false
-    if flingConn then pcall(function() flingConn:Disconnect() end) flingConn = nil end
-    local hrp = GetHRP()
-    if hrp then pcall(function() hrp.Velocity = Vector3.zero hrp.RotVelocity = Vector3.zero end) end
-end
-
-local function StartFling(targetPlayer)
-    if flingActive then StopFling() end
-    if not targetPlayer or not IsAlive(targetPlayer) then return end
-
-    flingActive = true
-    flingTarget = targetPlayer
-
-    flingConn = RS.Heartbeat:Connect(function()
-        if not flingActive then return end
-        local myChar, myHRP = GetChar(), GetHRP()
-        local tgtHRP, tgtHum = GetHRP(flingTarget), GetHum(flingTarget)
-        if not (myChar and myHRP and tgtHRP and tgtHum and tgtHum.Health > 0) then
-            StopFling()
-            Z.Notify("NDS", "Fling parado (alvo morto ou saiu).", C.TextDim, 2)
-            return
-        end
-        pcall(function()
-            myHRP.CFrame = tgtHRP.CFrame * CFrame.new(0, 0, -1.5)
-            myHRP.Velocity = Vector3.new(0, 50, 0)
-            myHRP.RotVelocity = Vector3.new(0, 5000, 0)
-        end)
-    end)
-    Z.Notify("NDS", "Fling ativado em " .. targetPlayer.Name, C.Success, 3)
-end
-
--- ═══════════════════════════════════════════════════════════════════════
--- FLING ALL (uma vez)
--- ═══════════════════════════════════════════════════════════════════════
-local function FlingAllOnce()
-    local myHRP = GetHRP()
-    if not myHRP then return end
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p == Player then continue end
-        local hrp, hum = GetHRP(p), GetHum(p)
-        if hrp and hum and hum.Health > 0 then
-            pcall(function()
-                myHRP.CFrame = hrp.CFrame * CFrame.new(0, 0, -1)
-                myHRP.Velocity = Vector3.new(0, 200, 0)
-                myHRP.RotVelocity = Vector3.new(0, 8000, 0)
-            end)
-            task.wait(0.1)
-        end
-    end
-    Z.Notify("NDS", "Fling All executado.", C.Accent, 2)
-end
-
--- ═══════════════════════════════════════════════════════════════════════
--- SAFEZONE
--- ═══════════════════════════════════════════════════════════════════════
-local safezoneActive = false
-local safezoneConn = nil
-
-local function StopSafezone()
-    safezoneActive = false
-    if safezoneConn then pcall(function() safezoneConn:Disconnect() end) safezoneConn = nil end
-end
-
-local function StartSafezone()
-    if safezoneActive then return end
-    safezoneActive = true
-    safezoneConn = RS.Heartbeat:Connect(function()
-        if not safezoneActive then return end
-        local hum, hrp = GetHum(), GetHRP()
-        if not (hum and hrp) then return end
-        if hum.Health <= S.safezoneHealth and hum.Health > 0 then
-            pcall(function()
-                hrp.CFrame = hrp.CFrame + Vector3.new(0, 500, 0)
-                hrp.Velocity = Vector3.zero
-            end)
-            task.wait(1)
-        end
-    end)
-end
-
--- ═══════════════════════════════════════════════════════════════════════
--- ESP
--- ═══════════════════════════════════════════════════════════════════════
+-- ============================================================
+-- ESTADO INTERNO
+-- ============================================================
 local espObjects = {}
-local espConn = nil
+local wallhackObjects = {}
+local aimbotTarget = nil
+local aimbotHolding = false
+local cachedWeapons = {}
 
-local function ClearESP()
-    for p, data in pairs(espObjects) do
-        if data.highlight then pcall(function() data.highlight:Destroy() end) end
-        if data.billboard then pcall(function() data.billboard:Destroy() end) end
+local function getWeaponName(plr)
+    local char = plr.Character
+    if not char then return "?" end
+    local weapon = char:FindFirstChild("Weapon")
+    if weapon and weapon:IsA("Tool") then return weapon.Name end
+    local tool = char:FindFirstChildOfClass("Tool")
+    if tool then return tool.Name end
+    for _, v in ipairs(char:GetChildren()) do
+        if v:IsA("Tool") then return v.Name end
     end
-    table.clear(espObjects)
+    return "Desarmado"
 end
 
-local function CreateESPForPlayer(p)
-    if p == Player then return end
-    local char = GetChar(p)
+local function isAlive(plr)
+    local char = plr.Character
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    return true
+end
+
+local function isTeammate(plr)
+    if not plr.Team or not Player.Team then return false end
+    return plr.Team == Player.Team
+end
+
+local function worldToScreen(pos)
+    local screen, onScreen = Camera:WorldToScreenPoint(pos)
+    return Vector2.new(screen.X, screen.Y), onScreen
+end
+
+local function getDistance(plr)
+    if not plr.Character or not plr.Character:FindFirstChild("HumanoidRootPart") then return 0 end
+    local myChar = Player.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return 0 end
+    return (myChar.HumanoidRootPart.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+end
+
+-- ============================================================
+-- ESP / WALLHACK
+-- ============================================================
+local function destroyESP(plr)
+    if espObjects[plr] then
+        for _, obj in pairs(espObjects[plr]) do
+            if obj and obj.Destroy then pcall(obj.Destroy, obj) end
+        end
+        espObjects[plr] = nil
+    end
+end
+
+local function destroyWallhack(plr)
+    if wallhackObjects[plr] then
+        pcall(function() wallhackObjects[plr]:Destroy() end)
+        wallhackObjects[plr] = nil
+    end
+end
+
+local function createWallhack(plr)
+    if not S.cb_wallhack_enabled then return end
+    if not isAlive(plr) or isTeammate(plr) then return end
+    if wallhackObjects[plr] then return end
+    local char = plr.Character
     if not char then return end
-
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ZuniESP_" .. p.Name
-    highlight.FillColor = C.Accent
-    highlight.FillTransparency = 0.6
-    highlight.OutlineColor = C.AccentLight
-    highlight.OutlineTransparency = 0
-    highlight.Parent = char
-
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ZuniESP_BB_" .. p.Name
-    billboard.Size = UDim2.new(0, 200, 0, 60)
-    billboard.StudsOffset = Vector3.new(0, 3, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Parent = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
-
-    local nameLbl = Instance.new("TextLabel")
-    nameLbl.Name = "Name"
-    nameLbl.Size = UDim2.new(1, 0, 0, 20)
-    nameLbl.BackgroundTransparency = 1
-    nameLbl.Text = p.Name
-    nameLbl.TextColor3 = C.Text
-    nameLbl.TextSize = 14
-    nameLbl.Font = Enum.Font.GothamBold
-    nameLbl.Parent = billboard
-
-    local healthLbl = Instance.new("TextLabel")
-    healthLbl.Name = "Health"
-    healthLbl.Size = UDim2.new(1, 0, 0, 16)
-    healthLbl.Position = UDim2.new(0, 0, 0, 20)
-    healthLbl.BackgroundTransparency = 1
-    healthLbl.Text = "HP: --"
-    healthLbl.TextColor3 = C.Success
-    healthLbl.TextSize = 12
-    healthLbl.Font = Enum.Font.Gotham
-    healthLbl.Parent = billboard
-
-    local distLbl = Instance.new("TextLabel")
-    distLbl.Name = "Distance"
-    distLbl.Size = UDim2.new(1, 0, 0, 16)
-    distLbl.Position = UDim2.new(0, 0, 0, 36)
-    distLbl.BackgroundTransparency = 1
-    distLbl.Text = "-- studs"
-    distLbl.TextColor3 = C.TextDim
-    distLbl.TextSize = 11
-    distLbl.Font = Enum.Font.Gotham
-    distLbl.Parent = billboard
-
-    espObjects[p] = { highlight = highlight, billboard = billboard }
+    local hl = Instance.new("Highlight")
+    hl.Name = "ZuniWH"
+    hl.Adornee = char
+    hl.FillColor = C.Danger
+    hl.OutlineColor = C.Text
+    hl.FillTransparency = 0.55
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = char
+    wallhackObjects[plr] = hl
 end
 
-local function StartESP()
-    ClearESP()
-    for _, p in ipairs(Players:GetPlayers()) do CreateESPForPlayer(p) end
+local function createESP(plr)
+    if not S.cb_esp_enabled then return end
+    if not isAlive(plr) or isTeammate(plr) then return end
+    if espObjects[plr] then return end
 
-    espConn = RS.RenderStepped:Connect(function()
-        if not S.espEnabled then return end
-        local myHRP = GetHRP()
-        if not myHRP then return end
-        for p, data in pairs(espObjects) do
-            local char, hrp, hum = GetChar(p), GetHRP(p), GetHum(p)
-            if not (char and hrp and hum and hum.Health > 0) then
-                if data.billboard then data.billboard.Enabled = false end
-                if data.highlight then data.highlight.Enabled = false end
-                continue
-            end
-            if data.highlight then data.highlight.Enabled = true end
-            if data.billboard then
-                data.billboard.Enabled = true
-                local nameLbl   = data.billboard:FindFirstChild("Name")
-                local healthLbl = data.billboard:FindFirstChild("Health")
-                local distLbl   = data.billboard:FindFirstChild("Distance")
-                if nameLbl then nameLbl.Visible = S.espName end
-                if healthLbl then
-                    healthLbl.Visible = S.espHealth
-                    healthLbl.Text = string.format("HP: %d/%d", math.floor(hum.Health), math.floor(hum.MaxHealth))
-                    local ratio = hum.Health / hum.MaxHealth
-                    healthLbl.TextColor3 = ratio > 0.6 and C.Success or (ratio > 0.3 and C.Warning or C.Danger)
-                end
-                if distLbl then
-                    distLbl.Visible = S.espDistance
-                    distLbl.Text = string.format("%d studs", math.floor((hrp.Position - myHRP.Position).Magnitude))
-                end
-            end
+    local char = plr.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+
+    local objs = {}
+
+    -- Box
+    if S.cb_esp_box then
+        local box = Drawing.new("Square")
+        box.Visible = false
+        box.Color = C.Text
+        box.Thickness = 1
+        box.Filled = false
+        box.Transparency = 0.85
+        objs.box = box
+    end
+
+    -- Name + Health + Weapon Billboard
+    if S.cb_esp_name or S.cb_esp_health or S.cb_esp_weapon then
+        local bg = Instance.new("BillboardGui")
+        bg.Name = "ZuniESP"
+        bg.Size = UDim2.new(0, 180, 0, 52)
+        bg.StudsOffset = Vector3.new(0, 2.8, 0)
+        bg.AlwaysOnTop = true
+        bg.MaxDistance = S.cb_esp_max_dist
+        bg.Adornee = head
+        bg.Parent = head
+
+        local container = Instance.new("Frame")
+        container.Size = UDim2.new(1, 0, 1, 0)
+        container.BackgroundTransparency = 1
+        container.Parent = bg
+
+        local nameLbl = nil
+        if S.cb_esp_name then
+            nameLbl = Instance.new("TextLabel")
+            nameLbl.Size = UDim2.new(1, 0, 0, 14)
+            nameLbl.Position = UDim2.new(0, 0, 0, 0)
+            nameLbl.BackgroundTransparency = 1
+            nameLbl.Text = plr.Name
+            nameLbl.TextColor3 = C.Text
+            nameLbl.TextStrokeTransparency = 0
+            nameLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+            nameLbl.Font = Enum.Font.GothamBold
+            nameLbl.TextSize = 12
+            nameLbl.Parent = container
         end
-    end)
 
-    Z.PageTrack(Players.PlayerAdded:Connect(function(p)
-        task.wait(1)
-        if S.espEnabled then CreateESPForPlayer(p) end
-    end))
-    Z.PageTrack(Players.PlayerRemoving:Connect(function(p)
-        local data = espObjects[p]
-        if data then
-            if data.highlight then pcall(function() data.highlight:Destroy() end) end
-            if data.billboard then pcall(function() data.billboard:Destroy() end) end
-            espObjects[p] = nil
+        local hpLbl = nil
+        if S.cb_esp_health then
+            hpLbl = Instance.new("TextLabel")
+            hpLbl.Size = UDim2.new(1, 0, 0, 12)
+            hpLbl.Position = UDim2.new(0, 0, 0, 14)
+            hpLbl.BackgroundTransparency = 1
+            hpLbl.TextColor3 = C.Success
+            hpLbl.TextStrokeTransparency = 0
+            hpLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+            hpLbl.Font = Enum.Font.GothamMedium
+            hpLbl.TextSize = 10
+            hpLbl.Parent = container
         end
-    end))
-end
 
-local function StopESP()
-    if espConn then pcall(function() espConn:Disconnect() end) espConn = nil end
-    ClearESP()
-end
-
--- ═══════════════════════════════════════════════════════════════════════
--- UTILIDADES: Noclip, Inf Jump, Fly
--- ═══════════════════════════════════════════════════════════════════════
-local noclipConn, flyConn, infJumpConn = nil, nil, nil
-local flyActive, flySpeed = false, 100
-
-local function StartNoclip()
-    if noclipConn then return end
-    noclipConn = RS.Stepped:Connect(function()
-        local char = GetChar()
-        if not char then return end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then pcall(function() part.CanCollide = false end) end
+        local wpLbl = nil
+        if S.cb_esp_weapon then
+            wpLbl = Instance.new("TextLabel")
+            wpLbl.Size = UDim2.new(1, 0, 0, 12)
+            wpLbl.Position = UDim2.new(0, 0, 0, 26)
+            wpLbl.BackgroundTransparency = 1
+            wpLbl.TextColor3 = C.Warning
+            wpLbl.TextStrokeTransparency = 0
+            wpLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+            wpLbl.Font = Enum.Font.GothamMedium
+            wpLbl.TextSize = 10
+            wpLbl.Text = "Arma: ?"
+            wpLbl.Parent = container
         end
-    end)
+
+        local distLbl = nil
+        if S.cb_esp_distance then
+            distLbl = Instance.new("TextLabel")
+            distLbl.Size = UDim2.new(1, 0, 0, 12)
+            distLbl.Position = UDim2.new(0, 0, 0, 38)
+            distLbl.BackgroundTransparency = 1
+            distLbl.TextColor3 = C.TextDim
+            distLbl.TextStrokeTransparency = 0
+            distLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+            distLbl.Font = Enum.Font.GothamMedium
+            distLbl.TextSize = 10
+            distLbl.Parent = container
+        end
+
+        objs.billboard = bg
+        objs.nameLbl = nameLbl
+        objs.hpLbl = hpLbl
+        objs.wpLbl = wpLbl
+        objs.distLbl = distLbl
+    end
+
+    -- Tracer
+    if S.cb_esp_tracer then
+        local tracer = Drawing.new("Line")
+        tracer.Visible = false
+        tracer.Color = C.AccentLight
+        tracer.Thickness = 1
+        tracer.Transparency = 0.8
+        objs.tracer = tracer
+    end
+
+    -- Head Dot
+    if S.cb_esp_head_dot then
+        local dot = Drawing.new("Circle")
+        dot.Visible = false
+        dot.Color = C.Danger
+        dot.Thickness = 2
+        dot.Filled = true
+        dot.Radius = 3
+        objs.dot = dot
+    end
+
+    espObjects[plr] = objs
 end
 
-local function StopNoclip()
-    if noclipConn then pcall(function() noclipConn:Disconnect() end) noclipConn = nil end
-    local char = GetChar()
-    if char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                pcall(function() part.CanCollide = true end)
-            end
+local function updateESP(plr)
+    local objs = espObjects[plr]
+    if not objs then return end
+    if not isAlive(plr) or not S.cb_esp_enabled then
+        destroyESP(plr)
+        return
+    end
+
+    local char = plr.Character
+    local head = char and char:FindFirstChild("Head")
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not head or not hrp or not hum then
+        destroyESP(plr)
+        return
+    end
+
+    local dist = getDistance(plr)
+    if dist > S.cb_esp_max_dist then
+        if objs.box then objs.box.Visible = false end
+        if objs.billboard then objs.billboard.Enabled = false end
+        if objs.tracer then objs.tracer.Visible = false end
+        if objs.dot then objs.dot.Visible = false end
+        return
+    end
+
+    local headScreen, headOn = worldToScreen(head.Position + Vector3.new(0, 1, 0))
+    local rootScreen, rootOn = worldToScreen(hrp.Position - Vector3.new(0, 3, 0))
+    if not headOn and not rootOn then
+        if objs.box then objs.box.Visible = false end
+        if objs.billboard then objs.billboard.Enabled = false end
+        if objs.tracer then objs.tracer.Visible = false end
+        if objs.dot then objs.dot.Visible = false end
+        return
+    end
+
+    if objs.box and headOn and rootOn then
+        local h = math.abs(rootScreen.Y - headScreen.Y)
+        local w = h * 0.55
+        local x = headScreen.X - w / 2
+        local y = headScreen.Y
+        objs.box.Size = Vector2.new(w, h)
+        objs.box.Position = Vector2.new(x, y)
+        objs.box.Visible = true
+    end
+
+    if objs.billboard then
+        objs.billboard.Enabled = true
+        objs.billboard.MaxDistance = S.cb_esp_max_dist
+        if objs.nameLbl then objs.nameLbl.Text = plr.Name end
+        if objs.hpLbl then
+            local hp = math.floor(hum.Health)
+            local maxHp = math.floor(hum.MaxHealth)
+            objs.hpLbl.Text = hp .. " / " .. maxHp
+            local ratio = hum.Health / hum.MaxHealth
+            if ratio > 0.6 then objs.hpLbl.TextColor3 = C.Success
+            elseif ratio > 0.3 then objs.hpLbl.TextColor3 = C.Warning
+            else objs.hpLbl.TextColor3 = C.Danger end
+        end
+        if objs.wpLbl then
+            objs.wpLbl.Text = "Arma: " .. getWeaponName(plr)
+        end
+        if objs.distLbl then
+            objs.distLbl.Text = "Dist: " .. math.floor(dist) .. "m"
         end
     end
-end
 
-local function StartFly()
-    if flyConn then return end
-    flyActive = true
-    local bodyVel, bodyGyro = nil, nil
-
-    flyConn = RS.Heartbeat:Connect(function()
-        if not flyActive then return end
-        local hrp = GetHRP()
-        if not hrp then return end
-
-        if not bodyVel or not bodyVel.Parent then
-            bodyVel = Instance.new("BodyVelocity")
-            bodyVel.Name = "ZuniFly"
-            bodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            bodyVel.Velocity = Vector3.zero
-            bodyVel.Parent = hrp
-        end
-        if not bodyGyro or not bodyGyro.Parent then
-            bodyGyro = Instance.new("BodyGyro")
-            bodyGyro.Name = "ZuniFlyGyro"
-            bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-            bodyGyro.P = 10000
-            bodyGyro.D = 500
-            bodyGyro.Parent = hrp
-        end
-
-        local cam = workspace.CurrentCamera
-        local dir = Vector3.zero
-        if UIS:IsKeyDown(Enum.KeyCode.W) then dir += cam.CFrame.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.S) then dir -= cam.CFrame.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.A) then dir -= cam.CFrame.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then dir += cam.CFrame.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.new(0, 1, 0) end
-        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir -= Vector3.new(0, 1, 0) end
-
-        bodyVel.Velocity = dir * flySpeed
-        bodyGyro.CFrame = cam.CFrame
-    end)
-end
-
-local function StopFly()
-    flyActive = false
-    if flyConn then pcall(function() flyConn:Disconnect() end) flyConn = nil end
-    local hrp = GetHRP()
-    if hrp then
-        local bv, bg = hrp:FindFirstChild("ZuniFly"), hrp:FindFirstChild("ZuniFlyGyro")
-        if bv then bv:Destroy() end
-        if bg then bg:Destroy() end
-    end
-end
-
-local function StartInfJump()
-    if infJumpConn then return end
-    infJumpConn = UIS.JumpRequest:Connect(function()
-        local hum = GetHum()
-        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
-    end)
-end
-
-local function StopInfJump()
-    if infJumpConn then pcall(function() infJumpConn:Disconnect() end) infJumpConn = nil end
-end
-
--- ═══════════════════════════════════════════════════════════════════════
--- ABA MAIN
--- ═══════════════════════════════════════════════════════════════════════
-local function LoadMain()
-    -- FLING ---------------------------------------------------------------
-    Z.Sep("🎯  FLING")
-    Z.Button("Fling All (uma vez)", C.Warning, FlingAllOnce)
-
-    UI.flingTarget = PlayerDropdown("Alvo do Fling", function(p) flingTarget = p end,
-        "Escolha um jogador para flingar continuamente")
-
-    local flingToggle
-    flingToggle = Z.Toggle("Aim Fling (contínuo)", false, function(v)
-        if v then
-            local target = UI.flingTarget and UI.flingTarget.Get()
-            if not target then
-                Z.Notify("NDS", "Selecione um alvo primeiro.", C.Warning, 2)
-                if flingToggle then flingToggle.Set(false, true) end
-                return
-            end
-            StartFling(target)
+    if objs.tracer then
+        local screenPos = headScreen
+        if screenPos then
+            local vp = Camera.ViewportSize
+            objs.tracer.From = Vector2.new(vp.X / 2, vp.Y)
+            objs.tracer.To = screenPos
+            objs.tracer.Visible = true
         else
-            StopFling()
+            objs.tracer.Visible = false
         end
-    end, "Flinga o alvo selecionado sem parar")
+    end
 
-    Z.Button("Parar Fling", C.Danger, function()
-        StopFling()
-        if flingToggle then flingToggle.Set(false, true) end
-        Z.Notify("NDS", "Fling parado.", C.TextDim, 2)
-    end)
-
-    -- SAFEZONE ------------------------------------------------------------
-    Z.Sep("🛡️  SAFEZONE")
-    Z.Toggle("Safezone (vida baixa)", S.safezoneEnabled, function(v)
-        S.safezoneEnabled = v
-        if v then StartSafezone() else StopSafezone() end
-    end, "Teleporta para cima quando a vida fica abaixo do limite")
-    Z.Slider("Vida mínima", 10, 80, S.safezoneHealth, function(v) S.safezoneHealth = v end,
-        { step = 5, suffix = " HP" })
-
-    -- ESP ----------------------------------------------------------------
-    Z.Sep("👁️  ESP")
-    Z.Toggle("Ativar ESP", S.espEnabled, function(v)
-        S.espEnabled = v
-        if v then StartESP() else StopESP() end
-    end, "Mostra nome, vida e distância dos jogadores")
-    Z.Toggle("Mostrar nome", S.espName, function(v) S.espName = v end)
-    Z.Toggle("Mostrar vida", S.espHealth, function(v) S.espHealth = v end)
-    Z.Toggle("Mostrar distância", S.espDistance, function(v) S.espDistance = v end)
-
-    -- UTILIDADES ---------------------------------------------------------
-    Z.Sep("⚙️  UTILIDADES")
-    Z.Toggle("Noclip", false, function(v) if v then StartNoclip() else StopNoclip() end end,
-        "Atravessa paredes e objetos")
-    Z.Toggle("Infinite Jump", false, function(v) if v then StartInfJump() else StopInfJump() end end,
-        "Pula infinitas vezes no ar")
-    Z.Toggle("Fly", false, function(v) if v then StartFly() else StopFly() end end,
-        "Voa com WASD + Space/Ctrl")
-    Z.Slider("Velocidade do Fly", 20, 500, flySpeed, function(v) flySpeed = v end,
-        { step = 10, suffix = " studs/s" })
-
-    Z.PageTrack({ Disconnect = function()
-        StopFling()
-        StopSafezone()
-        StopESP()
-        StopNoclip()
-        StopInfJump()
-        StopFly()
-    end })
+    if objs.dot and headOn then
+        objs.dot.Position = headScreen
+        objs.dot.Visible = true
+    elseif objs.dot then
+        objs.dot.Visible = false
+    end
 end
 
-Z.AddTab("NDS", "⚔️", LoadMain)
-Z.SelectTab("NDS")
-Z.Notify("Zuni Hub", "Módulo NDS v1.1 carregado!", C.Success, 3)
-print("⚔️ NDS Module v1.1 iniciado")
+-- ============================================================
+-- AIMBOT
+-- ============================================================
+local function getClosestToCursor()
+    local mouse = UIS:GetMouseLocation()
+    local best = nil
+    local bestDist = S.cb_aimbot_fov
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == Player then continue end
+        if not isAlive(plr) or isTeammate(plr) then continue end
+        local char = plr.Character
+        local head = char and char:FindFirstChild("Head")
+        if not head then continue end
+        local dist = getDistance(plr)
+        if dist > S.cb_aimbot_max_dist then continue end
+
+        local screen, onScreen = worldToScreen(head.Position)
+        if onScreen then
+            local d = (mouse - screen).Magnitude
+            if d < bestDist then
+                bestDist = d
+                best = plr
+            end
+        end
+    end
+    return best
+end
+
+local function doAimbot()
+    if not S.cb_aimbot_enabled then return end
+    if not aimbotHolding then return end
+
+    local target = getClosestToCursor()
+    if not target then return end
+    local char = target.Character
+    local head = char and char:FindFirstChild("Head")
+    if not head then return end
+
+    local targetPos = head.Position
+    local camPos = Camera.CFrame.Position
+    local goal = CFrame.new(camPos, targetPos)
+    Camera.CFrame = Camera.CFrame:Lerp(goal, S.cb_aimbot_smooth)
+end
+
+-- ============================================================
+-- LOOPS
+-- ============================================================
+Z.PageLoop("cb_esp_loop", function()
+    if not Z.Alive then return end
+    for plr, _ in pairs(espObjects) do
+        updateESP(plr)
+    end
+    if S.cb_esp_enabled then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= Player then
+                if isAlive(plr) and not isTeammate(plr) then
+                    createESP(plr)
+                else
+                    destroyESP(plr)
+                end
+            end
+        end
+    else
+        for plr, _ in pairs(espObjects) do
+            destroyESP(plr)
+        end
+    end
+end)
+
+Z.PageLoop("cb_wh_loop", function()
+    if not Z.Alive then return end
+    if S.cb_wallhack_enabled then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= Player and isAlive(plr) and not isTeammate(plr) then
+                createWallhack(plr)
+            end
+        end
+    else
+        for plr, _ in pairs(wallhackObjects) do
+            destroyWallhack(plr)
+        end
+    end
+end)
+
+Z.PageLoop("cb_aim_loop", function()
+    if not Z.Alive then return end
+    doAimbot()
+end)
+
+-- ============================================================
+-- INPUT
+-- ============================================================
+local function isAimbotKey(input)
+    if S.cb_aimbot_key == "RMB" then return input.UserInputType == Enum.UserInputType.MouseButton2 end
+    if S.cb_aimbot_key == "LMB" then return input.UserInputType == Enum.UserInputType.MouseButton1 end
+    if S.cb_aimbot_key == "E" then return input.KeyCode == Enum.KeyCode.E end
+    if S.cb_aimbot_key == "Q" then return input.KeyCode == Enum.KeyCode.Q end
+    return false
+end
+
+Z.Track(UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if isAimbotKey(input) then aimbotHolding = true end
+end))
+
+Z.Track(UIS.InputEnded:Connect(function(input, gpe)
+    if isAimbotKey(input) then aimbotHolding = false end
+end))
+
+-- ============================================================
+-- PLAYER EVENTS
+-- ============================================================
+Z.Track(Players.PlayerRemoving:Connect(function(plr)
+    destroyESP(plr)
+    destroyWallhack(plr)
+end))
+
+-- ============================================================
+-- UI
+-- ============================================================
+local function LoadMain()
+    -- ESP
+    Z.Sep("ESP / Visuals")
+    Z.Toggle("Ativar ESP", S.cb_esp_enabled, function(v)
+        S.cb_esp_enabled = v
+        if not v then
+            for plr, _ in pairs(espObjects) do destroyESP(plr) end
+        end
+    end)
+    Z.Toggle("Box", S.cb_esp_box, function(v) S.cb_esp_box = v end)
+    Z.Toggle("Nome", S.cb_esp_name, function(v) S.cb_esp_name = v end)
+    Z.Toggle("Vida", S.cb_esp_health, function(v) S.cb_esp_health = v end)
+    Z.Toggle("Arma na Mao", S.cb_esp_weapon, function(v) S.cb_esp_weapon = v end)
+    Z.Toggle("Distancia", S.cb_esp_distance, function(v) S.cb_esp_distance = v end)
+    Z.Toggle("Tracer", S.cb_esp_tracer, function(v) S.cb_esp_tracer = v end)
+    Z.Toggle("Ponto na Cabeca", S.cb_esp_head_dot, function(v) S.cb_esp_head_dot = v end)
+    Z.Slider("Distancia Max ESP", 50, 2000, S.cb_esp_max_dist, function(v) S.cb_esp_max_dist = v end)
+
+    -- Wallhack
+    Z.Sep("Wallhack")
+    Z.Toggle("Ativar Wallhack", S.cb_wallhack_enabled, function(v)
+        S.cb_wallhack_enabled = v
+        if not v then
+            for plr, _ in pairs(wallhackObjects) do destroyWallhack(plr) end
+        end
+    end)
+
+    -- Aimbot
+    Z.Sep("Aimbot")
+    Z.Toggle("Ativar Aimbot", S.cb_aimbot_enabled, function(v)
+        S.cb_aimbot_enabled = v
+        if not v then aimbotHolding = false end
+    end)
+    Z.Slider("FOV", 10, 500, S.cb_aimbot_fov, function(v) S.cb_aimbot_fov = v end)
+    Z.Slider("Suavidade", 0.05, 1, S.cb_aimbot_smooth, function(v) S.cb_aimbot_smooth = v end)
+    Z.Slider("Distancia Max", 50, 1000, S.cb_aimbot_max_dist, function(v) S.cb_aimbot_max_dist = v end)
+    Z.Dropdown("Tecla de Mira", {"RMB", "LMB", "E", "Q"}, S.cb_aimbot_key, function(v)
+        S.cb_aimbot_key = v
+    end)
+
+    Z.Info("Aimbot: Segure a tecla selecionada para puxar a mira na cabeca do inimigo mais proximo do cursor.")
+    Z.Info("ESP mostra Nome, Vida e Arma na mao em tempo real.")
+end
+
+Z.AddTab("Counter Blox", "crosshair", LoadMain)
+Z.SelectTab("Counter Blox")
+Z.Notify("Counter Blox", "Modulo carregado. ESP detalhado + Aimbot na cabeca prontos.", 4)
