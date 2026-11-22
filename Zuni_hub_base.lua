@@ -799,13 +799,14 @@ end
 
 function Z.Dropdown(name, options, default, callback, desc)
     options = options or {}
-    local baseH = desc and 66 or 54
+    -- layout: título, (descrição), botão de seleção — tudo DENTRO do card
+    local selY = desc and 58 or 36
+    local baseH = selY + 32 + 12
     local card = Card(baseH)
 
-    Label(card, NoEmoji(name), 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, desc and 11 or 0), UDim2.new(1, -36, 0, desc and 20 or 54))
-    if desc then Label(card, NoEmoji(desc), 11, Colors.TextDim, F_REG, UDim2.fromOffset(18, 35), UDim2.new(1, -36, 0, 20)) end
+    Label(card, NoEmoji(name), 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, 10), UDim2.new(1, -36, 0, 20))
+    if desc then Label(card, NoEmoji(desc), 11, Colors.TextDim, F_REG, UDim2.fromOffset(18, 32), UDim2.new(1, -36, 0, 18)) end
 
-    local selY = desc and 50 or 16
     local selectBtn, valLbl, arrow = MakeSelect(card, selY, default and tostring(default) or "Selecionar...", default ~= nil)
     local listHolder, listStroke, catcher = MakeList(card)
 
@@ -869,13 +870,14 @@ function Z.Dropdown(name, options, default, callback, desc)
 end
 
 function Z.PlayerDropdown(name, callback, desc)
-    local baseH = desc and 66 or 54
+    -- layout: título, (descrição), botão de seleção — tudo DENTRO do card
+    local selY = desc and 58 or 36
+    local baseH = selY + 32 + 12
     local card = Card(baseH)
 
-    Label(card, NoEmoji(name), 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, desc and 11 or 0), UDim2.new(1, -36, 0, desc and 20 or 54))
-    if desc then Label(card, NoEmoji(desc), 11, Colors.TextDim, F_REG, UDim2.fromOffset(18, 35), UDim2.new(1, -36, 0, 20)) end
+    Label(card, NoEmoji(name), 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, 10), UDim2.new(1, -36, 0, 20))
+    if desc then Label(card, NoEmoji(desc), 11, Colors.TextDim, F_REG, UDim2.fromOffset(18, 32), UDim2.new(1, -36, 0, 18)) end
 
-    local selY = desc and 50 or 16
     local selectBtn, valLbl, arrow = MakeSelect(card, selY, "Selecionar jogador...", false)
     local listHolder, listStroke, catcher = MakeList(card)
 
