@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v9.0                                        ║
--- ║  Grab/Eat contínuo (50ms) • Check de 3s • Bedrock • Auto-Off       ║
+-- ║  ZUNI HUB - ETW MODULE v9.1                                        ║
+-- ║  Grab Único • Eat contínuo (50ms) • Bedrock • Auto-Off             ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -33,7 +33,7 @@ local GROUP_ID     = 10587104
 local SKIP_MAPTIME = 0
 
 local function Def(k, v) if S[k] == nil then S[k] = v end end
-Def("eatInterval", 50)       -- Fixado em 50ms para o Auto Eat
+Def("eatInterval", 50)
 Def("throwInterval", 500)
 Def("sellTimerInterval", 12000)
 Def("smartSellThreshold", 5)
@@ -67,12 +67,12 @@ local function FireEvent(name)
     local evs = c and c:FindFirstChild("Events")
     local ev = evs and evs:FindFirstChild(name)
     if not ev then return false end
-    if ev:IsA("RemoteEvent") then 
-        pcall(function() ev:FireServer() end) 
-    elseif ev:IsA("RemoteFunction") then 
-        pcall(function() ev:InvokeServer() end) 
-    else 
-        return false 
+    if ev:IsA("RemoteEvent") then
+        pcall(function() ev:FireServer() end)
+    elseif ev:IsA("RemoteFunction") then
+        pcall(function() ev:InvokeServer() end)
+    else
+        return false
     end
     return true
 end
@@ -262,7 +262,7 @@ task.spawn(function()
     task.wait(1)
     local okS, RunService = pcall(function() return game:GetService("RunService") end)
     if not okS or not RunService then return end
-    
+
     local conn = RunService.Heartbeat:Connect(function()
         pcall(function()
             if not Z.Alive then return end
@@ -322,11 +322,12 @@ task.spawn(function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- GRAB (Só tenta se NÃO tiver chunk, a cada 50ms)
+-- GRAB (SÓ UMA VEZ quando não tiver chunk, só re-tenta após perder chunk)
 -- ═══════════════════════════════════════════════════════════════════════
 local grabFallback = { walking = false, wasWalkOn = false, moveUntil = 0 }
 local grabCooldown = { until_ = 0 }
 local bedrockState = { since = nil }
+local grabTried = false  -- Flag: já tentou pegar desde que perdeu o chunk
 
 local function StartTempWalk()
     if grabFallback.walking then return end
@@ -349,19 +350,27 @@ local function ResetGrab()
     grabState.lastPos = nil
     bedrockState.since = nil
     grabCooldown.until_ = 0
+    grabTried = false
     StopTempWalk()
 end
 
 NewFeature("grab", "Auto Grab", function()
     -- Se ele JÁ TEM chunk, não tenta pegar, só espera o próximo ciclo.
     if HasChunk() then
+        -- Reseta a flag, pois agora tem chunk (quando perder, tenta de novo)
+        grabTried = false
         grabState.failSince = nil
         grabState.stuckSince = nil
         grabCooldown.until_ = 0
         if grabFallback.walking and tick() >= grabFallback.moveUntil then
             StopTempWalk()
         end
-        return 0.05 -- Roda de novo em 50ms para checar se comeu e liberou a mão
+        return 0.05
+    end
+
+    -- Se já tentou pegar e não tem chunk, não faz nada (espera perder o chunk ou o grab ser resetado)
+    if grabTried then
+        return 0.05
     end
 
     local hrp = GetHRP()
@@ -374,6 +383,7 @@ NewFeature("grab", "Auto Grab", function()
         if now - bedrockState.since >= S.bedrockSkipTime then
             SkipMap("Mapa pulado (preso na Bedrock).")
             bedrockState.since = nil
+            grabTried = false -- permite tentar de novo após skip
         else
             if not (Features.walk and Features.walk.running) then
                 StartTempWalk()
@@ -393,27 +403,19 @@ NewFeature("grab", "Auto Grab", function()
         return 0.05
     end
 
-    -- Travado na posição
-    if pos and grabState.lastPos then
-        local moved = (pos - grabState.lastPos).Magnitude
-        if moved < 0.5 then
-            if not grabState.stuckSince then grabState.stuckSince = now end
-        else
-            grabState.stuckSince = nil
-        end
-    end
-    grabState.lastPos = pos
+    -- Marca que já tentou pegar AGORA (só uma vez)
+    grabTried = true
 
-    -- Tenta pegar
+    -- Tenta pegar (única vez)
     task.spawn(FireEvent, "Grab")
 
     -- Verifica falha apenas depois de 3 segundos (3000ms)
     task.delay(3.0, function()
         if not Features.grab or not Features.grab.running then return end
         if HasChunk() then return end -- Deu certo, pegou chunk!
-        
         -- Falhou de verdade após 3s
         grabCooldown.until_ = tick() + S.grabFailCooldown
+        grabTried = false -- permite tentar novamente após o cooldown
         if S.grabWalkFallback and not grabFallback.walking then
             StartTempWalk()
             grabFallback.moveUntil = tick() + S.grabFailMoveDuration
@@ -433,7 +435,7 @@ NewFeature("grab", "Auto Grab", function()
         grabState.lastPos = nil
     end
 
-    return 0.05 -- Roda de novo em 50ms
+    return 0.05
 end, { onStart = ResetGrab, onStop = ResetGrab })
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -443,7 +445,7 @@ NewFeature("eat", "Auto Eat", function()
     if HasChunk() then
         FireEvent("Eat")
     end
-    return 0.05 -- Roda de novo em 50ms
+    return 0.05
 end)
 
 NewFeature("throw", "Auto Throw", function()
@@ -652,6 +654,7 @@ local function ApplyPreset(name)
     grabState.stuckSince = nil
     grabState.lastPos = nil
     grabCooldown.until_ = 0
+    grabTried = false
     ResetAutoOff()
     StopTempWalk()
 
@@ -795,8 +798,8 @@ local function LoadMain()
     Z.Slider("Tempo sem pegar chunk", 3, 120, S.skipStuckTime, function(v) S.skipStuckTime = v end, { suffix = " s" })
 
     Z.Sep("🌾  COLETA — AUTO GRAB")
-    FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk se não tiver. Se falhar após 3s, entra em cooldown.")
-    Z.Info("O Grab roda a cada 50ms, mas só dispara se você NÃO tiver um chunk.")
+    FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk UMA vez. Só tenta de novo depois que perder o chunk atual.")
+    Z.Info("O Grab só dispara se você NÃO tiver chunk, e apenas UMA vez até conseguir ou falhar.")
 
     Z.Slider("Cooldown após falha", 0.5, 15, S.grabFailCooldown, function(v)
         S.grabFailCooldown = v
@@ -884,5 +887,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v9.0 carregado!", C.Success, 3)
-print("⚡ ETW Module v9.0 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v9.1 carregado!", C.Success, 3)
+print("⚡ ETW Module v9.1 iniciado")
