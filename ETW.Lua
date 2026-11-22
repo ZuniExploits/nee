@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v11.6 - EDICÃO LEVE + SALVAMENTO            ║
--- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Limpeza Total          ║
+-- ║  ZUNI HUB - ETW MODULE v11.7 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Auto Upgrade Cego      ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -86,7 +86,6 @@ Def("autoPauseDelay", 5)
 
 -- Auto Upgrades
 Def("autoUpgradesEnabled", false)
-Def("autoUpgradesInterval", 1000)
 Def("autoUpgradesSelectedName", nil)
 
 -- Auto Rejoin (Lag)
@@ -236,34 +235,6 @@ local function GetItemInfo()
         end
     end
     return ItemInfo or nil
-end
-
-local function GetUpgradesFolder()
-    return Player:FindFirstChild("Upgrades")
-end
-
-local function GetCubes()
-    local gui = Player:FindFirstChild("PlayerGui")
-    if gui then
-        local screen = gui:FindFirstChild("ScreenGui")
-        if screen then
-            local shop = screen:FindFirstChild("Shop")
-            if shop then
-                local cubeFrame = shop:FindFirstChild("CubeFrame")
-                if cubeFrame then
-                    local counter = cubeFrame:FindFirstChild("CounterFrame")
-                    if counter then
-                        local cubesText = counter:FindFirstChild("Cubes")
-                        if cubesText and cubesText:IsA("TextLabel") then
-                            local num = tonumber(string.gsub(cubesText.Text, ",", ""))
-                            if num then return num end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return 0
 end
 
 local AUTO_UPGRADE_NAMES = {
@@ -781,38 +752,21 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES
+-- AUTO UPGRADES (Blindado / Cego)
 -- ═══════════════════════════════════════════════════════════════════════
 NewFeature("autoUpgrades", "Auto Upgrades", function()
     if not S.autoUpgradesEnabled then return 1 end
     local selectedName = S.autoUpgradesSelectedName
     if not selectedName or selectedName == "" then return 1 end
 
-    local upgradesFolder = GetUpgradesFolder()
-    local info = GetItemInfo()
-    if not upgradesFolder or not info or not info.Upgrades then return 1 end
-
-    local cubes = GetCubes()
     local purchaseEvent = GetEvent("PurchaseEvent")
     if not purchaseEvent then return 1 end
 
-    local val = upgradesFolder:FindFirstChild(selectedName)
-    local upgradeInfo = info.Upgrades[selectedName]
+    -- Dispara o evento cegamente (sem checar preço, sem checar Cubes, sem ler UI)
+    pcall(function() purchaseEvent:FireServer(selectedName) end)
     
-    if val and upgradeInfo and (val:IsA("NumberValue") or val:IsA("IntValue")) then
-        local nextLevel = val.Value + 1
-        local price = 0
-        
-        if type(upgradeInfo.priceFunction) == "function" then
-            pcall(function() price = upgradeInfo.priceFunction(nextLevel) end)
-        end
-        
-        if cubes >= price then
-            pcall(function() purchaseEvent:FireServer(selectedName) end)
-        end
-    end
-    
-    return math.max(0.1, (S.autoUpgradesInterval or 1000) / 1000)
+    -- Retorna 10 segundos para o próximo disparo
+    return 10
 end, { onStop = function() end })
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -979,7 +933,6 @@ local function LoadMain()
     local stReward = Z.Stat("Próxima reward", "—")
     local stActive = Z.Stat("Funções ativas", "0")
     local stSizeStuck = Z.Stat("Size parado há", "—")
-    local stCubes  = Z.Stat("Cubes", "0")
     Z.PageLoop(0.5, function()
         pcall(function()
             local sz = GetSize()
@@ -1006,7 +959,6 @@ local function LoadMain()
             else
                 stSizeStuck.Set("—", C.TextDim)
             end
-            stCubes.Set(tostring(GetCubes()), C.Text)
         end)
     end)
 
@@ -1214,7 +1166,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadAutoUpgrades()
     Z.Sep("⚡  AUTO UPGRADES")
-    Z.Info("Selecione qual upgrade o bot deve comprar automaticamente (somente se tiver Cubes). O Auto Upgrade tenta comprar a cada 1s.")
+    Z.Info("Selecione qual upgrade o bot deve comprar. Ele tentará comprar cegamente a cada 10 segundos (sem checar preço ou saldo).")
 
     local options = {}
     local mapToInternal = {}
@@ -1233,7 +1185,7 @@ local function LoadAutoUpgrades()
             S.autoUpgradesSelectedName = nil
         end
         SaveConfig()
-    end, "Qual upgrade deve ser comprado automaticamente?")
+    end, "Qual upgrade deve ser comprado?")
 
     if S.autoUpgradesSelectedName then
         for display, internal in pairs(mapToInternal) do
@@ -1245,15 +1197,10 @@ local function LoadAutoUpgrades()
     end
 
     Z.Sep("🤖  AUTOMAÇÃO")
-    FeatureToggle("autoUpgrades", "Auto Upgrade",
-        "Tenta comprar o upgrade selecionado a cada 1s (verifica o preço e os Cubes).")
-    Z.Slider("Intervalo do Auto Upgrade", 200, 5000, S.autoUpgradesInterval, function(v)
-        S.autoUpgradesInterval = v
-        SaveConfig()
-    end, { step = 100, suffix = " ms" })
-
-    Z.Sep("💡  DICA")
-    Z.Info("O bot usa o PurchaseEvent do jogo. Ele só compra se você tiver Cubes suficientes para o próximo nível do upgrade.")
+    FeatureToggle("autoUpgrades", "Auto Upgrade (Cego)",
+        "Dispara o evento de compra a cada 10 segundos sem checar nada.")
+        
+    Z.Info("⚠ O script NÃO vai verificar se você tem saldo ou se o preço subiu. Ele simplesmente manda o evento de compra a cada 10 segundos.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1277,15 +1224,14 @@ local function LoadAutoRejoin()
 
     Z.Sep("⏱️  REJOIN POR TEMPO (FIXO)")
     
-    -- Único toggle que liga o Rejoin por Tempo
     UI.rejoinTimer = Z.Toggle("Auto Rejoin (Tempo)", Features.rejoinTimer.running, function(v)
         SetFeature("rejoinTimer", v, true)
     end, "Reconecta após um tempo fixo, independente do lag.")
 
     Z.Slider("Reconectar a cada (minutos)", 1, 120, math.floor(S.autoRejoinTimeInterval / 60), function(v) 
-        S.autoRejoinTimeInterval = v * 60 -- Converte de volta para segundos
+        S.autoRejoinTimeInterval = v * 60
         if Features.rejoinTimer and Features.rejoinTimer.running then
-            rejoinTimerState.startedAt = tick() -- Reseta o timer ao mexer no slider
+            rejoinTimerState.startedAt = tick()
         end
         SaveConfig()
     end, { step = 1, suffix = " min" })
@@ -1326,11 +1272,11 @@ Z.AddTab("Presets",     "📦", LoadPresets)
 -- RESTAURA AS FUNÇÕES ATIVAS (AUTO-START)
 -- ═══════════════════════════════════════════════════════════════════════
 task.spawn(function()
-    task.wait(1) -- Espera a base e a interface carregarem
+    task.wait(1)
     if S.ActiveFeatures then
         for key, state in pairs(S.ActiveFeatures) do
             if state and Features[key] then
-                SetFeature(key, true, true, true) -- Inicia silenciosamente
+                SetFeature(key, true, true, true)
             end
         end
     end
@@ -1356,5 +1302,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v11.6 (Tempo + Lag) carregado!", C.Success, 3)
-print("⚡ ETW Module v11.6 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v11.7 (Cego) carregado!", C.Success, 3)
+print("⚡ ETW Module v11.7 iniciado")
