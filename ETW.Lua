@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v12.0 - EDICÃO LEVE + SALVAMENTO            ║
--- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Auto Upgrade Cego      ║
+-- ║  ZUNI HUB - ETW MODULE v12.1 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Auto Upgrade c/ saldo  ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -279,7 +279,8 @@ local function GetUpgradePrice(name)
     local currentLevel = GetUpgradeValue(name)
     if currentLevel == nil then return nil end
     local ok, price = pcall(function() return info.Upgrades[name].priceFunction(currentLevel + 1) end)
-    return ok and price or nil
+    if ok then return price end
+    return nil
 end
 
 local function GetCubes()
@@ -814,7 +815,7 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES (v12.0 — envia nome exato + popup a cada disparo)
+-- AUTO UPGRADES (v12.1 — verifica saldo antes de enviar)
 -- ═══════════════════════════════════════════════════════════════════════
 NewFeature("autoUpgrades", "Auto Upgrades", function()
     local selectedName = S.autoUpgradesSelectedName
@@ -822,6 +823,7 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
         return 2
     end
 
+    -- 1. Confirma que o upgrade existe em LocalPlayer.Upgrades
     local upgrades = Player:FindFirstChild("Upgrades")
     if not upgrades then
         Z.Notify("Auto Upgrades", "LocalPlayer.Upgrades não encontrado!", C.Warning, 3)
@@ -841,26 +843,45 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
         return 5
     end
 
+    -- 2. Calcula o preço do próximo nível (igual ao ShopScript)
+    local price = GetUpgradePrice(selectedName)
+    local cubes = GetCubes()
+
+    -- 3. Verifica saldo ANTES de disparar
+    if price ~= nil and cubes ~= nil and cubes < price then
+        -- Não dispara: saldo insuficiente
+        Z.Notify("Auto Upgrades",
+            string.format("Sem saldo: %s/%s (faltam %s)",
+                tostring(cubes), tostring(price), tostring(price - cubes)),
+            C.Warning, 2)
+        return 5
+    end
+
+    -- 4. Pega o evento
     local purchaseEvent = GetPurchaseEvent()
     if not purchaseEvent then
         Z.Notify("Auto Upgrades", "PurchaseEvent não encontrado!", C.Danger, 3)
         return 2
     end
 
+    -- 5. Dispara (saldo OK ou não foi possível ler preço/cubes)
     local ok, err = pcall(function()
         purchaseEvent:FireServer(selectedName)
     end)
 
     if ok then
-        -- ✅ POPUP confirmando o envio com o nome exato entre aspas
         Z.Notify("Auto Upgrades",
-            string.format("Enviado: %q | Nível: %s", selectedName, tostring(upgradeValue.Value)),
+            string.format("Enviado: %q | Nível: %s | %s/%s",
+                selectedName,
+                tostring(upgradeValue.Value),
+                tostring(cubes or "?"),
+                tostring(price or "?")),
             C.Success, 2)
-        -- Log no console (F9) para debug
-        print(string.format("[ETW AutoUpgrades] FireServer(%q) | Nível: %s | Cubes: %s",
+        print(string.format("[ETW AutoUpgrades] FireServer(%q) | Nível: %s | Cubes: %s | Preço: %s",
             selectedName,
             tostring(upgradeValue.Value),
-            tostring(GetCubes() or "?")))
+            tostring(cubes or "?"),
+            tostring(price or "?")))
     else
         Z.Notify("Auto Upgrades", "Erro: " .. tostring(err), C.Danger, 3)
         warn("[ETW AutoUpgrades] Erro ao disparar:", err)
@@ -870,7 +891,7 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
 end, {
     onStart = function()
         S.autoUpgradesEnabled = true
-        Z.Notify("Auto Upgrades", "Loop iniciado (10s).", C.Success, 2)
+        Z.Notify("Auto Upgrades", "Loop iniciado (10s). Verificando saldo antes de comprar.", C.Success, 2)
     end,
     onStop = function()
         S.autoUpgradesEnabled = false
@@ -1273,13 +1294,12 @@ local function LoadUnstuck()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA: AUTO UPGRADES (v12.0)
+-- ABA: AUTO UPGRADES (v12.1 — verifica saldo)
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadAutoUpgrades()
     Z.Sep("⚡  AUTO UPGRADES")
-    Z.Info("O dropdown mostra os nomes INTERNOS exatos de LocalPlayer.Upgrades. O FireServer envia esse nome cru, igual ao ShopScript. Um popup confirma cada envio.")
+    Z.Info("O dropdown mostra os nomes INTERNOS exatos de LocalPlayer.Upgrades. O FireServer só é enviado se você tiver Cubes suficientes para o próximo nível (calculado via ItemInfo).")
 
-    -- ✅ Dropdown com nomes internos CRUS
     local options = {}
     local upgradesFolder = Player:FindFirstChild("Upgrades")
 
@@ -1323,22 +1343,34 @@ local function LoadAutoUpgrades()
     local stUpgLevel = Z.Stat("Nível", "—")
     local stUpgPrice = Z.Stat("Preço próximo", "—")
     local stCubes    = Z.Stat("Cubes", "—")
+    local stCanBuy   = Z.Stat("Pode comprar?", "—")
     local stLoop     = Z.Stat("Loop ativo?", "—")
     Z.PageLoop(0.5, function()
         pcall(function()
             local name = S.autoUpgradesSelectedName
             stUpgName.Set(name or "—")
             stUpgLevel.Set(name and tostring(GetUpgradeValue(name) or "—") or "—")
-            stUpgPrice.Set(name and tostring(GetUpgradePrice(name) or "—") or "—")
-            stCubes.Set(tostring(GetCubes() or "—"))
+            local price = name and GetUpgradePrice(name) or nil
+            stUpgPrice.Set(price and tostring(price) or "—")
+            local cubes = GetCubes()
+            stCubes.Set(cubes and tostring(cubes) or "—")
+            if price ~= nil and cubes ~= nil then
+                if cubes >= price then
+                    stCanBuy.Set("Sim", C.Success)
+                else
+                    stCanBuy.Set("Não (faltam " .. (price - cubes) .. ")", C.Warning)
+                end
+            else
+                stCanBuy.Set("?", C.TextDim)
+            end
             local running = Features.autoUpgrades and Features.autoUpgrades.running
             stLoop.Set(running and "SIM" or "NÃO", running and C.Success or C.Danger)
         end)
     end)
 
     Z.Sep("🤖  AUTOMAÇÃO")
-    FeatureToggle("autoUpgrades", "Auto Upgrade (Cego)",
-        "Dispara PurchaseEvent:FireServer(nomeInternoExato) a cada 10s. Popup confirma cada envio.")
+    FeatureToggle("autoUpgrades", "Auto Upgrade (Cego c/ saldo)",
+        "Verifica saldo antes de disparar PurchaseEvent:FireServer(nomeInternoExato). Popup confirma envio.")
 
     Z.Button("🧪  Testar compra agora (manual)", C.Accent, function()
         local name = S.autoUpgradesSelectedName
@@ -1351,6 +1383,15 @@ local function LoadAutoUpgrades()
             Z.Notify("Auto Upgrades", "Nome inválido: " .. tostring(name), C.Danger, 2)
             return
         end
+        local price = GetUpgradePrice(name)
+        local cubes = GetCubes()
+        if price ~= nil and cubes ~= nil and cubes < price then
+            Z.Notify("Auto Upgrades",
+                string.format("Sem saldo: %s/%s (faltam %s)",
+                    tostring(cubes), tostring(price), tostring(price - cubes)),
+                C.Warning, 2)
+            return
+        end
         local ev = GetPurchaseEvent()
         if not ev then
             Z.Notify("Auto Upgrades", "PurchaseEvent não encontrado!", C.Danger, 2)
@@ -1358,16 +1399,19 @@ local function LoadAutoUpgrades()
         end
         local ok, err = pcall(function() ev:FireServer(name) end)
         if ok then
-            -- ✅ POPUP no teste manual também
-            Z.Notify("Auto Upgrades", string.format("Teste enviado: %q", name), C.Success, 2)
-            print(string.format("[ETW AutoUpgrades] TESTE manual: FireServer(%q)", name))
+            Z.Notify("Auto Upgrades",
+                string.format("Teste enviado: %q | %s/%s",
+                    name, tostring(cubes or "?"), tostring(price or "?")),
+                C.Success, 2)
+            print(string.format("[ETW AutoUpgrades] TESTE manual: FireServer(%q) | Cubes: %s | Preço: %s",
+                name, tostring(cubes or "?"), tostring(price or "?")))
         else
             Z.Notify("Auto Upgrades", "Erro: " .. tostring(err), C.Danger, 2)
             warn("[ETW AutoUpgrades] Erro no teste:", err)
         end
     end)
 
-    Z.Info("⚠ O nome enviado é o mesmo child.Name de LocalPlayer.Upgrades. Um popup aparece a cada disparo confirmando o envio.")
+    Z.Info("⚠ O nome enviado é o mesmo child.Name de LocalPlayer.Upgrades. A compra só é enviada se cubes >= price.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1469,5 +1513,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v12.0 (Auto Upgrade + popup) carregado!", C.Success, 3)
-print("⚡ ETW Module v12.0 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v12.1 (Auto Upgrade c/ saldo) carregado!", C.Success, 3)
+print("⚡ ETW Module v12.1 iniciado")
