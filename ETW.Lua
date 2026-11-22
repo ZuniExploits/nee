@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v8.0                                        ║
--- ║  Presets • Bedrock • Grab fallback • Smart Sell + Skip             ║
+-- ║  ZUNI HUB - ETW MODULE v8.2                                        ║
+-- ║  Presets • Bedrock • Grab cooldown • Auto-off por HRP ancorado     ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -50,9 +50,12 @@ Def("grabWalkFallback", true)
 Def("grabWalkWait", 1.5)
 Def("grabStuckTime", 1.5)
 Def("walkStuckTime", 2.0)
-Def("grabFailMoveDuration", 3.0)   -- segundos de movimento aleatório após falhar grab
-Def("bedrockSkipTime", 4.0)        -- segundos em cima de Bedrock até pular mapa
-Def("skipOnSmartSell", false)      -- pula o mapa ao vender pelo Smart Sell
+Def("grabFailMoveDuration", 3.0)
+Def("grabFailCooldown", 3.0)
+Def("bedrockSkipTime", 4.0)
+Def("skipOnSmartSell", false)
+Def("autoOffGrabThreshold", 5.0)   -- segundos sem crescer + parado para desligar o grab
+Def("autoOffGrabEnabled", true)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS DO JOGO
@@ -119,7 +122,6 @@ local function RandomWalkablePos(origin, radius)
     return nil
 end
 
--- ── Checa se o jogador está em cima de um part chamado "Bedrock" ──
 local function IsOnBedrock()
     local hrp = GetHRP()
     if not hrp then return false end
@@ -128,6 +130,11 @@ local function IsOnBedrock()
     if Player.Character then rp.FilterDescendantsInstances = { Player.Character } end
     local hit = workspace:Raycast(hrp.Position, Vector3.new(0, -10, 0), rp)
     return hit and hit.Instance and hit.Instance.Name == "Bedrock"
+end
+
+local function IsHRPAnchored()
+    local hrp = GetHRP()
+    return hrp and hrp.Anchored or false
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -189,7 +196,7 @@ local function CountActive()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- MAPA: SKIP / PAUSE / AUTO PAUSE APÓS SKIP
+-- MAPA
 -- ═══════════════════════════════════════════════════════════════════════
 local grabState = { failSince = nil, lastGrabAt = 0, lastPos = nil, stuckSince = nil }
 local lastSkip = 0
@@ -230,9 +237,92 @@ local function SkipMap(reason)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- GRAB com fallback de walk + anti-travamento + bedrock + move 3s
+-- AUTO-OFF DO GRAB (HRP ancorado + sem crescer + parado)
+-- ═══════════════════════════════════════════════════════════════════════
+local autoOff = {
+    lastSize = nil,
+    sameSizeSince = nil,
+    lastPos = nil,
+    stuckSince = nil,
+    watching = false,       -- true quando o grab foi desligado por este motivo
+    offSince = 0,
+}
+
+local function ResetAutoOff()
+    autoOff.lastSize = nil
+    autoOff.sameSizeSince = nil
+    autoOff.lastPos = nil
+    autoOff.stuckSince = nil
+    autoOff.watching = false
+    autoOff.offSince = 0
+end
+
+-- Watchdog global: roda independente de qualquer feature
+local AutoOffGrabConn = RunService.Heartbeat:Connect(function()
+    if not Z.Alive then return end
+    if not S.autoOffGrabEnabled then
+        if autoOff.watching then ResetAutoOff() end
+        return
+    end
+
+    -- Se o grab está ligado, monitora
+    if Features.grab and Features.grab.running then
+        autoOff.offSince = 0
+        local hrp = GetHRP()
+        local pos = hrp and hrp.Position or nil
+        local sz = GetSize()
+        local now = tick()
+
+        if sz ~= nil then
+            if autoOff.lastSize == nil then
+                autoOff.lastSize = sz
+                autoOff.sameSizeSince = now
+            elseif sz ~= autoOff.lastSize then
+                autoOff.lastSize = sz
+                autoOff.sameSizeSince = now
+            end
+        end
+
+        if pos and autoOff.lastPos then
+            local moved = (pos - autoOff.lastPos).Magnitude
+            if moved < 0.5 then
+                if not autoOff.stuckSince then autoOff.stuckSince = now end
+            else
+                autoOff.stuckSince = nil
+            end
+        end
+        autoOff.lastPos = pos
+
+        local sizeStuck = autoOff.sameSizeSince and (now - autoOff.sameSizeSince >= S.autoOffGrabThreshold)
+        local posStuck  = autoOff.stuckSince and (now - autoOff.stuckSince >= S.autoOffGrabThreshold)
+
+        if sizeStuck and posStuck and not autoOff.watching then
+            autoOff.watching = true
+            autoOff.offSince = now
+            SetFeature("grab", false, false)
+            Z.Notify("Auto Grab", "Desligado: sem crescer e parado. Aguardando HRP desancorar.", C.Warning, 4)
+        end
+        return
+    end
+
+    -- Grab já desligado por este motivo? Só religa quando HRP desancorar
+    if autoOff.watching then
+        local hrp = GetHRP()
+        if hrp and not hrp.Anchored then
+            autoOff.watching = false
+            ResetAutoOff()
+            SetFeature("grab", true, false)
+            Z.Notify("Auto Grab", "HRP desancorado. Auto Grab religado.", C.Success, 3)
+        end
+    end
+end)
+Z.Track(AutoOffGrabConn)
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- GRAB
 -- ═══════════════════════════════════════════════════════════════════════
 local grabFallback = { walking = false, wasWalkOn = false, moveUntil = 0 }
+local grabCooldown = { until_ = 0 }
 local bedrockState = { since = nil }
 
 local function StartTempWalk()
@@ -255,6 +345,7 @@ local function ResetGrab()
     grabState.stuckSince = nil
     grabState.lastPos = nil
     bedrockState.since = nil
+    grabCooldown.until_ = 0
     StopTempWalk()
 end
 
@@ -263,14 +354,12 @@ NewFeature("grab", "Auto Grab", function()
     local pos = hrp and hrp.Position or nil
     local now = tick()
 
-    -- ── Bedrock: não pega, só anda. Se persistir, pula mapa ──
     if IsOnBedrock() then
         if not bedrockState.since then bedrockState.since = now end
         if now - bedrockState.since >= S.bedrockSkipTime then
             SkipMap("Mapa pulado (preso na Bedrock).")
             bedrockState.since = nil
         else
-            -- só anda (ativa walk temporário se não estiver ligado)
             if not (Features.walk and Features.walk.running) then
                 StartTempWalk()
                 task.delay(S.grabWalkWait, function()
@@ -284,21 +373,21 @@ NewFeature("grab", "Auto Grab", function()
     end
     bedrockState.since = nil
 
-    -- ── Tem chunk: limpa tudo ──
     if HasChunk() then
         grabState.failSince = nil
         grabState.stuckSince = nil
         grabState.lastPos = pos
+        grabCooldown.until_ = 0
         if grabFallback.walking and now >= grabFallback.moveUntil then
             StopTempWalk()
         end
         return 0.1
     end
 
-    -- ── Detecta tentativa de grab e ausência de chunk ──
-    if not grabState.failSince then grabState.failSince = now end
+    if now < grabCooldown.until_ then
+        return S.grabInterval / 1000
+    end
 
-    -- Detecta travamento (posição não muda)
     if pos and grabState.lastPos then
         local moved = (pos - grabState.lastPos).Magnitude
         if moved < 0.5 then
@@ -309,17 +398,19 @@ NewFeature("grab", "Auto Grab", function()
     end
     grabState.lastPos = pos
 
-    -- ── Tentou pegar e não tem chunk: move aleatório por grabFailMoveDuration ──
-    if S.grabWalkFallback and not grabFallback.walking then
-        StartTempWalk()
-        grabFallback.moveUntil = now + S.grabFailMoveDuration
-    end
-    -- Termina o movimento aleatório após o tempo
-    if grabFallback.walking and now >= grabFallback.moveUntil then
-        StopTempWalk()
-    end
+    task.spawn(FireEvent, "Grab")
 
-    -- ── Travado muito tempo: força mudança de posição ──
+    task.delay(0.3, function()
+        if not Features.grab or not Features.grab.running then return end
+        if HasChunk() then return end
+        grabCooldown.until_ = tick() + S.grabFailCooldown
+        if S.grabWalkFallback and not grabFallback.walking then
+            StartTempWalk()
+            grabFallback.moveUntil = tick() + S.grabFailMoveDuration
+        end
+        Z.Notify("Auto Grab", "Falhou ao pegar. Aguardando " .. S.grabFailCooldown .. "s.", C.Warning, 2)
+    end)
+
     if grabState.stuckSince and (now - grabState.stuckSince) >= S.grabStuckTime then
         if pos then
             local target = RandomWalkablePos(pos, S.walkRadius)
@@ -331,7 +422,6 @@ NewFeature("grab", "Auto Grab", function()
         grabState.lastPos = nil
     end
 
-    task.spawn(FireEvent, "Grab")
     return S.grabInterval / 1000
 end, { onStart = ResetGrab, onStop = ResetGrab })
 
@@ -380,7 +470,7 @@ end, {
 })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO WALK — MoveTo contínuo + detecção de travamento
+-- AUTO WALK
 -- ═══════════════════════════════════════════════════════════════════════
 local walkState = { target = nil, lastPos = nil, stuckSince = nil, lastMoveAt = 0 }
 
@@ -402,6 +492,7 @@ end
 NewFeature("walk", "Auto Walk", function()
     local hrp, hum = GetHRP(), GetHum()
     if not (hrp and hum and hum.Health > 0) then return 0.3 end
+    if hrp.Anchored then return 0.3 end
 
     if hum.WalkSpeed ~= S.walkSpeed then hum.WalkSpeed = S.walkSpeed end
 
@@ -540,16 +631,15 @@ end)
 -- PRESETS
 -- ═══════════════════════════════════════════════════════════════════════
 local function ApplyPreset(name)
-    -- Desliga tudo primeiro
     for key in pairs(Features) do SetFeature(key, false, true) end
-    -- Reseta estados internos
     grabState.failSince = nil
     grabState.stuckSince = nil
     grabState.lastPos = nil
+    grabCooldown.until_ = 0
+    ResetAutoOff()
     StopTempWalk()
 
     if name == "normal" then
-        -- Farm normal: tudo ligado, andando
         SetFeature("grab", true, true)
         SetFeature("eat", true, true)
         SetFeature("smartSell", true, true)
@@ -561,7 +651,6 @@ local function ApplyPreset(name)
         S.grabWalkFallback = true
         Z.Notify("Preset", "Normal Farm ativado.", C.Success, 3)
     elseif name == "static" then
-        -- Farm #1: parado, com SkipOnSmartSell
         SetFeature("grab", true, true)
         SetFeature("eat", true, true)
         SetFeature("smartSell", true, true)
@@ -574,7 +663,6 @@ local function ApplyPreset(name)
         Z.Notify("Preset", "Farm #1 (parado + SkipOnSmartSell) ativado.", C.Success, 3)
     end
 
-    -- Atualiza UI se a aba Main estiver aberta
     if Z.CurrentTab == "Main" then
         for key, ui in pairs(UI) do
             if ui and ui.Set and Features[key] then
@@ -615,12 +703,13 @@ local function NextRewardIn()
 end
 
 local function LoadMain()
-    -- STATUS --------------------------------------------------------------
     Z.Sep("📊  STATUS")
     local stSize   = Z.Stat("Tamanho", "—")
     local stChunk  = Z.Stat("Chunk", "—")
     local stBed    = Z.Stat("Bedrock", "—")
     local stFail   = Z.Stat("Sem conseguir pegar há", "—")
+    local stCd     = Z.Stat("Cooldown do grab", "—")
+    local stHrp    = Z.Stat("HRP ancorado", "—")
     local stMap    = Z.Stat("Mapa", "—")
     local stReward = Z.Stat("Próxima reward", "—")
     local stActive = Z.Stat("Funções ativas", "0")
@@ -633,6 +722,10 @@ local function LoadMain()
         stBed.Set(bed and "Sim" or "Não", bed and C.Warning or C.TextDim)
         local fs = grabState.failSince
         stFail.Set(fs and (math.floor(tick() - fs) .. " s") or "—", fs and C.Warning or C.TextDim)
+        local cd = grabCooldown.until_ - tick()
+        stCd.Set(cd > 0 and (string.format("%.1f s", cd)) or "—", cd > 0 and C.Warning or C.TextDim)
+        local anch = IsHRPAnchored()
+        stHrp.Set(anch and "Sim" or "Não", anch and C.Danger or C.Success)
         local ss = GetServerSettings()
         local paused = ss and ss:FindFirstChild("Paused")
         if paused then stMap.Set(paused.Value and "Pausado" or "Rodando", paused.Value and C.Danger or C.Success) end
@@ -644,7 +737,6 @@ local function LoadMain()
         stActive.Set(tostring(n), n > 0 and C.Success or C.TextDim)
     end)
 
-    -- CONTROLES RÁPIDOS ---------------------------------------------------
     Z.Sep("🎛️  CONTROLES RÁPIDOS")
     Z.Button("▶  Ativar farm completo (Grab + Eat + Smart Sell + Rewards)", C.Success, function()
         for _, k in ipairs({ "grab", "eat", "smartSell", "rewards" }) do SetFeature(k, true, true) end
@@ -653,10 +745,10 @@ local function LoadMain()
     Z.Button("⏭  Pular mapa agora", C.Accent, function() SkipMap("Mapa pulado.") end)
     Z.Button("⏹  Desligar tudo", C.Danger, function()
         for key in pairs(Features) do SetFeature(key, false, true) end
+        ResetAutoOff()
         Z.Notify("ETW", "Todas as funções desligadas.", C.TextDim, 2)
     end)
 
-    -- MAPA ----------------------------------------------------------------
     Z.Sep("🗺️  MAPA")
     local ss = GetServerSettings()
     local paused = ss and ss:FindFirstChild("Paused")
@@ -677,20 +769,21 @@ local function LoadMain()
     Z.Slider("Delay do pause", 1, 30, S.autoPauseDelay, function(v)
         S.autoPauseDelay = v
     end, { suffix = " s" })
-    Z.Info("Ao pular o mapa, o script despausa na hora e agenda o pause automático. " ..
-           "Se pular de novo antes do pause, o pause antigo é cancelado.")
 
     FeatureToggle("skipTimer", "Auto Skip Map (por tempo)", "Pula o mapa a cada X segundos")
     Z.Slider("Pular a cada", 5, 900, S.skipInterval, function(v) S.skipInterval = v end, { step = 5, suffix = " s" })
 
     FeatureToggle("skipStuck", "Auto Skip Map (sem chunk)", "Pula se tentar pegar e não conseguir por X s")
     Z.Slider("Tempo sem pegar chunk", 3, 120, S.skipStuckTime, function(v) S.skipStuckTime = v end, { suffix = " s" })
-    Z.Info("O contador do 'sem chunk' só começa quando o Auto Grab tenta pegar e não pega nada. Precisa do Auto Grab ligado.")
 
-    -- COLETA --------------------------------------------------------------
     Z.Sep("🌾  COLETA — AUTO GRAB")
-    FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk sem parar. Na Bedrock só anda; se persistir, pula mapa.")
+    FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk. Se falhar, entra em cooldown e (opcional) anda.")
     Z.Slider("Intervalo entre tentativas", 50, 3000, S.grabInterval, function(v) S.grabInterval = v end, { step = 25, suffix = " ms" })
+
+    Z.Slider("Cooldown após falha", 0.5, 15, S.grabFailCooldown, function(v)
+        S.grabFailCooldown = v
+    end, { step = 0.5, suffix = " s" })
+    Z.Info("Depois de tentar pegar e não conseguir chunk, o Grab fica sem tentar por esse tempo.")
 
     Z.Toggle("Movimento aleatório após falha", S.grabWalkFallback, function(v)
         S.grabWalkFallback = v
@@ -705,16 +798,24 @@ local function LoadMain()
         S.bedrockSkipTime = v
     end, { step = 0.5, suffix = " s" })
 
+    Z.Sep("⏸️  AUTO-OFF DO GRAB")
+    Z.Toggle("Desligar grab se parado e sem crescer", S.autoOffGrabEnabled, function(v)
+        S.autoOffGrabEnabled = v
+        if not v then ResetAutoOff() end
+    end, "Desliga o Auto Grab quando o jogador fica parado e o tamanho não cresce")
+    Z.Slider("Tempo sem crescer + parado", 1, 30, S.autoOffGrabThreshold, function(v)
+        S.autoOffGrabThreshold = v
+    end, { step = 0.5, suffix = " s" })
+    Z.Info("Quando o Grab é desligado por esse motivo, ele só religa sozinho quando o HRP do jogador desancorar.")
+
     Z.Sep("🍽️  COMER — AUTO EAT")
     FeatureToggle("eat", "Auto Eat", "Come automaticamente")
     Z.Slider("Intervalo", 100, 3000, S.eatInterval, function(v) S.eatInterval = v end, { step = 50, suffix = " ms" })
 
-    -- REWARDS -------------------------------------------------------------
     Z.Sep("🎁  REWARDS")
     FeatureToggle("rewards", "Auto Redeem Rewards", "Resgata as rewards por tempo assim que ficam prontas")
     Z.Toggle("Incluir giro do grupo (Spin)", S.rewardSpin, function(v) S.rewardSpin = v end, "Só funciona se você estiver no grupo do jogo")
 
-    -- VENDA ---------------------------------------------------------------
     Z.Sep("💰  VENDA — AUTO SELL")
     FeatureToggle("sellTimer", "Auto Sell (Timer)", "Vende em intervalos fixos")
     Z.Slider("Vender a cada", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v end, { step = 500, suffix = " ms" })
@@ -723,9 +824,7 @@ local function LoadMain()
     Z.Toggle("SkipOnSmartSell", S.skipOnSmartSell, function(v)
         S.skipOnSmartSell = v
     end, "Pula o mapa assim que o Smart Sell vender")
-    Z.Info("Só vende se estiver com chunk na mão. Sem chunk, o contador zera.")
 
-    -- EXTRAS --------------------------------------------------------------
     Z.Sep("🗑️  EXTRAS — AUTO THROW")
     FeatureToggle("throw", "Auto Throw", "Joga fora o que está na mão")
     Z.Slider("Intervalo", 100, 3000, S.throwInterval, function(v) S.throwInterval = v end, { step = 50, suffix = " ms" })
@@ -737,7 +836,6 @@ local function LoadMain()
     Z.Slider("Pausa entre destinos", 0, 3000, S.walkInterval, function(v) S.walkInterval = v end, { step = 50, suffix = " ms" })
     Z.Slider("Tempo para considerar travado no walk", 1, 10, S.walkStuckTime, function(v) S.walkStuckTime = v end, { step = 0.5, suffix = " s" })
 
-    -- ATALHOS -------------------------------------------------------------
     Z.Sep("⌨️  ATALHOS")
     Z.Info(string.format(
         "%s = Auto Grab   •   %s = Auto Eat   •   %s = Auto Throw\n%s = Auto Sell (Timer → Smart → Desligado)",
@@ -768,5 +866,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v8.0 carregado!", C.Success, 3)
-print("⚡ ETW Module v8.0 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v8.2 carregado!", C.Success, 3)
+print("⚡ ETW Module v8.2 iniciado")
