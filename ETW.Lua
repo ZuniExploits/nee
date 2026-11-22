@@ -19,6 +19,7 @@ local UI     = Z.UI
 local Player = game:GetService("Players").LocalPlayer
 local UIS    = game:GetService("UserInputService")
 local RS     = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- CONFIG
