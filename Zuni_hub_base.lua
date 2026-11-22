@@ -515,32 +515,38 @@ end
 
 function Z.Dropdown(name, options, default, callback, desc)
     options = options or {}
-    local labelH = desc and 31 or 0
-    local baseH = 60 + labelH
+    local baseH = desc and 66 or 54
     local card = Card(baseH)
-    card.ClipsDescendants = true
+    
+    -- Removemos o ClipsDescendants para a lista não ser cortada
+    card.ClipsDescendants = false 
+    card.ZIndex = 5
 
-    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, 11), UDim2.new(1, -36, 0, 20))
-    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(18, 32), UDim2.new(1, -36, 0, 16)) end
+    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, desc and 11 or 0), UDim2.new(1, -36, 0, desc and 20 or 54))
+    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(18, 35), UDim2.new(1, -36, 0, 20)) end
 
-    local selY = desc and 50 or 34
+    local selY = desc and 50 or 16
     local selectBtn = New("TextButton", {
         Size = UDim2.new(1, -36, 0, 32), Position = UDim2.fromOffset(18, selY),
-        BackgroundColor3 = Colors.CardHover, Text = "", AutoButtonColor = false, BorderSizePixel = 0,
+        BackgroundColor3 = Colors.CardHover, Text = "", AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 6,
     }, card)
     Corner(selectBtn, 8)
     Stroke(selectBtn, Colors.Border, 1, 0.5)
     local valLbl = Label(selectBtn, default and tostring(default) or "Selecionar...", 13,
         default and Colors.Text or Colors.TextMuted, F_MED, UDim2.fromOffset(12, 0), UDim2.new(1, -34, 1, 0))
+    valLbl.ZIndex = 7
     local arrow = Label(selectBtn, "▾", 14, Colors.TextDim, F_BOLD, UDim2.new(1, -26, 0, 0), UDim2.fromOffset(20, 32), Enum.TextXAlignment.Center)
+    arrow.ZIndex = 7
 
+    -- A lista flutua sobre os outros elementos em vez de esticar o card
     local listHolder = New("ScrollingFrame", {
-        Size = UDim2.new(1, -36, 0, 0), Position = UDim2.fromOffset(18, selY + 40),
+        Size = UDim2.new(1, -36, 0, 0), Position = UDim2.fromOffset(18, selY + 36),
         BackgroundColor3 = Colors.Bg, BorderSizePixel = 0, ScrollBarThickness = 3,
         ScrollBarImageColor3 = Colors.Accent, CanvasSize = UDim2.new(),
-        AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false, ZIndex = 10,
     }, card)
     Corner(listHolder, 8)
+    Stroke(listHolder, Colors.Border, 1, 0)
     New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, listHolder)
 
     local selected, isOpen, itemButtons = default, false, {}
@@ -548,7 +554,6 @@ function Z.Dropdown(name, options, default, callback, desc)
     local function CloseList()
         if not isOpen then return end
         isOpen = false
-        Tween(card, 0.15, { Size = UDim2.new(1, 0, 0, baseH) })
         Tween(arrow, 0.15, { Rotation = 0 })
         task.delay(0.15, function() if not isOpen and listHolder.Parent then listHolder.Visible = false end end)
     end
@@ -560,7 +565,7 @@ function Z.Dropdown(name, options, default, callback, desc)
             local item = New("TextButton", {
                 Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Colors.Accent, BackgroundTransparency = 1,
                 Text = "  " .. tostring(opt), Font = F_MED, TextSize = 13, TextColor3 = Colors.TextDim,
-                TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = i,
+                TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = i, ZIndex = 11,
             }, listHolder)
             item.MouseEnter:Connect(function() Tween(item, 0.1, { BackgroundTransparency = 0.45 }) end)
             item.MouseLeave:Connect(function() Tween(item, 0.1, { BackgroundTransparency = 1 }) end)
@@ -581,7 +586,6 @@ function Z.Dropdown(name, options, default, callback, desc)
         listHolder.Visible = true
         local h = math.min(160, #options * 30 + 4)
         listHolder.Size = UDim2.new(1, -36, 0, h)
-        Tween(card, 0.15, { Size = UDim2.new(1, 0, 0, baseH + h + 8) })
         Tween(arrow, 0.15, { Rotation = 180 })
     end
 
@@ -604,6 +608,106 @@ function Z.Dropdown(name, options, default, callback, desc)
         valLbl.Text = v and tostring(v) or "Selecionar..."
         valLbl.TextColor3 = v and Colors.Text or Colors.TextMuted
         if not silent then Safe(callback, v) end
+    end
+    return obj
+end
+
+function Z.PlayerDropdown(name, callback, desc)
+    local baseH = desc and 66 or 54
+    local card = Card(baseH)
+    card.ClipsDescendants = false
+    card.ZIndex = 5
+
+    Label(card, name, 14, Colors.Text, F_BOLD, UDim2.fromOffset(18, desc and 11 or 0), UDim2.new(1, -36, 0, desc and 20 or 54))
+    if desc then Label(card, desc, 12, Colors.TextDim, F_REG, UDim2.fromOffset(18, 35), UDim2.new(1, -36, 0, 20)) end
+
+    local selY = desc and 50 or 16
+    local selectBtn = New("TextButton", {
+        Size = UDim2.new(1, -36, 0, 32), Position = UDim2.fromOffset(18, selY),
+        BackgroundColor3 = Colors.CardHover, Text = "", AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 6,
+    }, card)
+    Corner(selectBtn, 8)
+    Stroke(selectBtn, Colors.Border, 1, 0.5)
+    local valLbl = Label(selectBtn, "Selecionar jogador...", 13, Colors.TextMuted, F_MED, UDim2.fromOffset(12, 0), UDim2.new(1, -34, 1, 0))
+    valLbl.ZIndex = 7
+    local arrow = Label(selectBtn, "▾", 14, Colors.TextDim, F_BOLD, UDim2.new(1, -26, 0, 0), UDim2.fromOffset(20, 32), Enum.TextXAlignment.Center)
+    arrow.ZIndex = 7
+
+    local listHolder = New("ScrollingFrame", {
+        Size = UDim2.new(1, -36, 0, 0), Position = UDim2.fromOffset(18, selY + 36),
+        BackgroundColor3 = Colors.Bg, BorderSizePixel = 0, ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Colors.Accent, CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false, ZIndex = 10,
+    }, card)
+    Corner(listHolder, 8)
+    Stroke(listHolder, Colors.Border, 1, 0)
+    New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, listHolder)
+
+    local selected, isOpen, itemButtons = nil, false, {}
+
+    local function CloseList()
+        if not isOpen then return end
+        isOpen = false
+        Tween(arrow, 0.15, { Rotation = 0 })
+        task.delay(0.15, function() if not isOpen and listHolder.Parent then listHolder.Visible = false end end)
+    end
+
+    local function RenderItems()
+        for _, b in ipairs(itemButtons) do b:Destroy() end
+        table.clear(itemButtons)
+        local players = Players:GetPlayers()
+        for i, p in ipairs(players) do
+            if p ~= Player then
+                local item = New("TextButton", {
+                    Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Colors.Accent, BackgroundTransparency = 1,
+                    Text = "  " .. p.Name, Font = F_MED, TextSize = 13, TextColor3 = Colors.TextDim,
+                    TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = i, ZIndex = 11,
+                }, listHolder)
+                item.MouseEnter:Connect(function() Tween(item, 0.1, { BackgroundTransparency = 0.45 }) end)
+                item.MouseLeave:Connect(function() Tween(item, 0.1, { BackgroundTransparency = 1 }) end)
+                item.MouseButton1Click:Connect(function()
+                    selected = p
+                    valLbl.Text, valLbl.TextColor3 = p.Name, Colors.Text
+                    CloseList()
+                    Safe(callback, p)
+                end)
+                table.insert(itemButtons, item)
+            end
+        end
+    end
+
+    local function OpenList()
+        if isOpen then return end
+        RenderItems()
+        if #itemButtons == 0 then
+            Z.Notify("Players", "Nenhum outro jogador no servidor.", Colors.Warning, 2)
+            return
+        end
+        isOpen = true
+        listHolder.Visible = true
+        local h = math.min(160, #itemButtons * 30 + 4)
+        listHolder.Size = UDim2.new(1, -36, 0, h)
+        Tween(arrow, 0.15, { Rotation = 180 })
+    end
+
+    selectBtn.MouseButton1Click:Connect(function() if isOpen then CloseList() else OpenList() end end)
+
+    Z.PageTrack(Players.PlayerAdded:Connect(function() if isOpen then RenderItems() end end))
+    Z.PageTrack(Players.PlayerRemoving:Connect(function(p)
+        if selected == p then
+            selected = nil
+            valLbl.Text, valLbl.TextColor3 = "Selecionar jogador...", Colors.TextMuted
+        end
+        if isOpen then RenderItems() end
+    end))
+
+    local obj = { Frame = card }
+    function obj.Get() return selected end
+    function obj.Set(p, silent)
+        selected = p
+        valLbl.Text = p and p.Name or "Selecionar jogador..."
+        valLbl.TextColor3 = p and Colors.Text or Colors.TextMuted
+        if not silent then Safe(callback, p) end
     end
     return obj
 end
