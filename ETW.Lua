@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v8.6                                        ║
--- ║  Grab check 1s • Bedrock • Auto-Off • Presets                      ║
+-- ║  ZUNI HUB - ETW MODULE v8.7                                        ║
+-- ║  Grab check 3s • Bedrock • Auto-Off • Presets                      ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -96,7 +96,8 @@ end
 
 local function GetSize()
     local ls = Player:FindFirstChild("leaderstats")
-    local sz = ls and ls:FindFirstChild("Size")
+    if not ls then return nil end
+    local sz = ls:FindFirstChild("Size") or ls:FindFirstChild("Mass")
     return sz and tonumber(sz.Value) or nil
 end
 
@@ -322,7 +323,7 @@ task.spawn(function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- GRAB
+-- GRAB (com espera de 3s para falhar)
 -- ═══════════════════════════════════════════════════════════════════════
 local grabFallback = { walking = false, wasWalkOn = false, moveUntil = 0 }
 local grabCooldown = { until_ = 0 }
@@ -408,18 +409,18 @@ NewFeature("grab", "Auto Grab", function()
     -- Tenta pegar
     task.spawn(FireEvent, "Grab")
 
-    -- Verifica falha apenas depois de 1 segundo (1000ms)
-    task.delay(1.0, function()
+    -- Verifica falha apenas depois de 3 segundos (3000ms)
+    task.delay(3.0, function()
         if not Features.grab or not Features.grab.running then return end
         if HasChunk() then return end -- Deu certo, pegou chunk!
         
-        -- Falhou de verdade
+        -- Falhou de verdade após 3s
         grabCooldown.until_ = tick() + S.grabFailCooldown
         if S.grabWalkFallback and not grabFallback.walking then
             StartTempWalk()
             grabFallback.moveUntil = tick() + S.grabFailMoveDuration
         end
-        Z.Notify("Auto Grab", "Falhou ao pegar. Aguardando " .. S.grabFailCooldown .. "s.", C.Warning, 2)
+        Z.Notify("Auto Grab", "Falhou ao pegar após 3s. Aguardando " .. S.grabFailCooldown .. "s.", C.Warning, 2)
     end)
 
     -- Se ficou muito tempo parado (sem chunk), teleporta
@@ -797,7 +798,7 @@ local function LoadMain()
     Z.Slider("Cooldown após falha", 0.5, 15, S.grabFailCooldown, function(v)
         S.grabFailCooldown = v
     end, { step = 0.5, suffix = " s" })
-    Z.Info("Depois de tentar pegar e não conseguir chunk, o Grab fica sem tentar por esse tempo. O script aguarda 1s antes de confirmar que falhou.")
+    Z.Info("Depois de tentar pegar e não conseguir chunk, o Grab fica sem tentar por esse tempo. O script aguarda 3s antes de confirmar que falhou.")
 
     Z.Toggle("Movimento aleatório após falha", S.grabWalkFallback, function(v)
         S.grabWalkFallback = v
@@ -880,5 +881,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v8.6 carregado!", C.Success, 3)
-print("⚡ ETW Module v8.6 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v8.7 carregado!", C.Success, 3)
+print("⚡ ETW Module v8.7 iniciado")
