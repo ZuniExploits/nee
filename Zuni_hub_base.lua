@@ -141,7 +141,7 @@ end
 local function Safe(cb, ...)
     if not cb then return end
     local ok, err = pcall(cb, ...)
-    if not ok then warn("[Zuni] " .. tostring(err)) end
+    if not ok then warn("[ZuniHub] " .. tostring(err)) end
 end
 local function IsPointer(i)
     return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
@@ -370,7 +370,7 @@ local LogoCard = New("Frame", {
 Corner(LogoCard, 14)
 Gradient(LogoCard, WHITE, SOFT_GRAY, 90)
 Stroke(LogoCard, Colors.Accent, 1, 0.55)
-local logoTitle = Label(LogoCard, "ZUNI", 24, WHITE, F_BLACK, UDim2.fromOffset(16, 7), UDim2.new(1, -24, 0, 30))
+local logoTitle = Label(LogoCard, "ZUNI HUB", 24, WHITE, F_BLACK, UDim2.fromOffset(16, 7), UDim2.new(1, -24, 0, 30))
 Gradient(logoTitle, Colors.Text, Colors.AccentLight, 0)
 Label(LogoCard, "HUB  v" .. Z.Version, 10, Colors.AccentLight, F_MED, UDim2.fromOffset(17, 37), UDim2.new(1, -24, 0, 16))
 
