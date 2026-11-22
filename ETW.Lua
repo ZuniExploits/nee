@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v8.4                                        ║
--- ║  Presets • Bedrock • Grab cooldown • Auto-off por HRP ancorado     ║
+-- ║  ZUNI HUB - ETW MODULE v8.5                                        ║
+-- ║  Audited • Sem erros de RunService • Presets • Auto-Off            ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -68,9 +68,13 @@ local function FireEvent(name)
     local evs = c and c:FindFirstChild("Events")
     local ev = evs and evs:FindFirstChild(name)
     if not ev then return false end
-    if ev:IsA("RemoteEvent") then ev:FireServer()
-    elseif ev:IsA("RemoteFunction") then ev:InvokeServer()
-    else return false end
+    if ev:IsA("RemoteEvent") then 
+        pcall(function() ev:FireServer() end) 
+    elseif ev:IsA("RemoteFunction") then 
+        pcall(function() ev:InvokeServer() end) 
+    else 
+        return false 
+    end
     return true
 end
 
@@ -205,7 +209,7 @@ local pauseToken = 0
 local function SetMapPaused(v)
     local ev = GetEvent("SetServerSettings")
     if not ev then return false end
-    ev:FireServer({ Paused = v })
+    pcall(function() ev:FireServer({ Paused = v }) end)
     return true
 end
 
@@ -215,7 +219,7 @@ local function SkipMap(reason)
         Z.Notify("Skip Map", "Evento SetServerSettings não encontrado.", C.Danger, 3)
         return false
     end
-    ev:FireServer({ MapTime = SKIP_MAPTIME })
+    pcall(function() ev:FireServer({ MapTime = SKIP_MAPTIME }) end)
     lastSkip = tick()
     grabState.failSince = nil
     grabState.stuckSince = nil
@@ -257,71 +261,71 @@ local function ResetAutoOff()
     autoOff.offSince = 0
 end
 
--- Watchdog global com verificação de segurança
+-- Watchdog global protegido
 task.spawn(function()
-    local ok, conn = pcall(function()
-        return game:GetService("RunService").Heartbeat:Connect(function()
-            pcall(function()
-                if not Z.Alive then return end
-                if not S.autoOffGrabEnabled then
-                    if autoOff.watching then ResetAutoOff() end
-                    return
-                end
+    task.wait(1) -- Espera o jogo carregar
+    local okS, RunService = pcall(function() return game:GetService("RunService") end)
+    if not okS or not RunService then return end
+    
+    local conn = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            if not Z.Alive then return end
+            if not S.autoOffGrabEnabled then
+                if autoOff.watching then ResetAutoOff() end
+                return
+            end
 
-                if Features.grab and Features.grab.running then
-                    autoOff.offSince = 0
-                    local hrp = GetHRP()
-                    local pos = hrp and hrp.Position or nil
-                    local sz = GetSize()
-                    local now = tick()
+            if Features.grab and Features.grab.running then
+                autoOff.offSince = 0
+                local hrp = GetHRP()
+                local pos = hrp and hrp.Position or nil
+                local sz = GetSize()
+                local now = tick()
 
-                    if sz ~= nil then
-                        if autoOff.lastSize == nil then
-                            autoOff.lastSize = sz
-                            autoOff.sameSizeSince = now
-                        elseif sz ~= autoOff.lastSize then
-                            autoOff.lastSize = sz
-                            autoOff.sameSizeSince = now
-                        end
-                    end
-
-                    if pos and autoOff.lastPos then
-                        local moved = (pos - autoOff.lastPos).Magnitude
-                        if moved < 0.5 then
-                            if not autoOff.stuckSince then autoOff.stuckSince = now end
-                        else
-                            autoOff.stuckSince = nil
-                        end
-                    end
-                    autoOff.lastPos = pos
-
-                    local sizeStuck = autoOff.sameSizeSince and (now - autoOff.sameSizeSince >= S.autoOffGrabThreshold)
-                    local posStuck  = autoOff.stuckSince and (now - autoOff.stuckSince >= S.autoOffGrabThreshold)
-
-                    if sizeStuck and posStuck and not autoOff.watching then
-                        autoOff.watching = true
-                        autoOff.offSince = now
-                        SetFeature("grab", false, false)
-                        Z.Notify("Auto Grab", "Desligado: sem crescer e parado. Aguardando HRP desancorar.", C.Warning, 4)
-                    end
-                    return
-                end
-
-                if autoOff.watching then
-                    local hrp = GetHRP()
-                    if hrp and not hrp.Anchored then
-                        autoOff.watching = false
-                        ResetAutoOff()
-                        SetFeature("grab", true, false)
-                        Z.Notify("Auto Grab", "HRP desancorado. Auto Grab religado.", C.Success, 3)
+                if sz ~= nil then
+                    if autoOff.lastSize == nil then
+                        autoOff.lastSize = sz
+                        autoOff.sameSizeSince = now
+                    elseif sz ~= autoOff.lastSize then
+                        autoOff.lastSize = sz
+                        autoOff.sameSizeSince = now
                     end
                 end
-            end)
+
+                if pos and autoOff.lastPos then
+                    local moved = (pos - autoOff.lastPos).Magnitude
+                    if moved < 0.5 then
+                        if not autoOff.stuckSince then autoOff.stuckSince = now end
+                    else
+                        autoOff.stuckSince = nil
+                    end
+                end
+                autoOff.lastPos = pos
+
+                local sizeStuck = autoOff.sameSizeSince and (now - autoOff.sameSizeSince >= S.autoOffGrabThreshold)
+                local posStuck  = autoOff.stuckSince and (now - autoOff.stuckSince >= S.autoOffGrabThreshold)
+
+                if sizeStuck and posStuck and not autoOff.watching then
+                    autoOff.watching = true
+                    autoOff.offSince = now
+                    SetFeature("grab", false, false)
+                    Z.Notify("Auto Grab", "Desligado: sem crescer e parado. Aguardando HRP desancorar.", C.Warning, 4)
+                end
+                return
+            end
+
+            if autoOff.watching then
+                local hrp = GetHRP()
+                if hrp and not hrp.Anchored then
+                    autoOff.watching = false
+                    ResetAutoOff()
+                    SetFeature("grab", true, false)
+                    Z.Notify("Auto Grab", "HRP desancorado. Auto Grab religado.", C.Success, 3)
+                end
+            end
         end)
     end)
-    if ok and conn then
-        Z.Track(conn)
-    end
+    if conn then Z.Track(conn) end
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -588,7 +592,7 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
                     local sent = rewardSent[child]
                     if not sent or tick() - sent > 3 then
                         rewardSent[child] = tick()
-                        rewardEvent:FireServer(child)
+                        pcall(function() rewardEvent:FireServer(child) end)
                         task.wait(0.4)
                     end
                 end
@@ -604,7 +608,7 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
             local seed = math.floor(os.time() / info.GroupInterval)
             if last.Value < seed * info.GroupInterval then
                 lastSpin = tick()
-                spinEvent:FireServer()
+                pcall(function() spinEvent:FireServer() end)
             end
         end
     end
@@ -720,27 +724,29 @@ local function LoadMain()
     local stReward = Z.Stat("Próxima reward", "—")
     local stActive = Z.Stat("Funções ativas", "0")
     Z.PageLoop(0.5, function()
-        local sz = GetSize()
-        stSize.Set(sz and tostring(sz) or "—")
-        local has = HasChunk()
-        stChunk.Set(has and "Sim" or "Não", has and C.Success or C.TextDim)
-        local bed = IsOnBedrock()
-        stBed.Set(bed and "Sim" or "Não", bed and C.Warning or C.TextDim)
-        local fs = grabState.failSince
-        stFail.Set(fs and (math.floor(tick() - fs) .. " s") or "—", fs and C.Warning or C.TextDim)
-        local cd = grabCooldown.until_ - tick()
-        stCd.Set(cd > 0 and (string.format("%.1f s", cd)) or "—", cd > 0 and C.Warning or C.TextDim)
-        local anch = IsHRPAnchored()
-        stHrp.Set(anch and "Sim" or "Não", anch and C.Danger or C.Success)
-        local ss = GetServerSettings()
-        local paused = ss and ss:FindFirstChild("Paused")
-        if paused then stMap.Set(paused.Value and "Pausado" or "Rodando", paused.Value and C.Danger or C.Success) end
-        local nr = NextRewardIn()
-        if nr == nil then stReward.Set("—")
-        elseif nr <= 0 then stReward.Set("Pronta!", C.Success)
-        else stReward.Set(Fmt(nr)) end
-        local n = CountActive()
-        stActive.Set(tostring(n), n > 0 and C.Success or C.TextDim)
+        pcall(function()
+            local sz = GetSize()
+            stSize.Set(sz and tostring(sz) or "—")
+            local has = HasChunk()
+            stChunk.Set(has and "Sim" or "Não", has and C.Success or C.TextDim)
+            local bed = IsOnBedrock()
+            stBed.Set(bed and "Sim" or "Não", bed and C.Warning or C.TextDim)
+            local fs = grabState.failSince
+            stFail.Set(fs and (math.floor(tick() - fs) .. " s") or "—", fs and C.Warning or C.TextDim)
+            local cd = grabCooldown.until_ - tick()
+            stCd.Set(cd > 0 and (string.format("%.1f s", cd)) or "—", cd > 0 and C.Warning or C.TextDim)
+            local anch = IsHRPAnchored()
+            stHrp.Set(anch and "Sim" or "Não", anch and C.Danger or C.Success)
+            local ss = GetServerSettings()
+            local paused = ss and ss:FindFirstChild("Paused")
+            if paused then stMap.Set(paused.Value and "Pausado" or "Rodando", paused.Value and C.Danger or C.Success) end
+            local nr = NextRewardIn()
+            if nr == nil then stReward.Set("—")
+            elseif nr <= 0 then stReward.Set("Pronta!", C.Success)
+            else stReward.Set(Fmt(nr)) end
+            local n = CountActive()
+            stActive.Set(tostring(n), n > 0 and C.Success or C.TextDim)
+        end)
     end)
 
     Z.Sep("🎛️  CONTROLES RÁPIDOS")
@@ -872,5 +878,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v8.4 carregado!", C.Success, 3)
-print("⚡ ETW Module v8.4 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v8.5 carregado!", C.Success, 3)
+print("⚡ ETW Module v8.5 iniciado")
