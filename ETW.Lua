@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v11.3 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  ZUNI HUB - ETW MODULE v11.4 - EDICÃO LEVE + SALVAMENTO            ║
 -- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Limpeza Total          ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -355,7 +355,6 @@ local function SetFeature(key, v, quiet, isRestoring)
         Z.Notify(ft.label, v and "Ativado" or "Desativado", v and C.Success or C.TextDim, 1.5)
     end
     
-    -- Salva sempre que muda
     if not isRestoring then
         SaveConfig()
     end
@@ -825,8 +824,9 @@ local rejoinState = { lowFpsSince = nil }
 local function DoRejoin(reason)
     if not Z.Alive then return end
     Z.Notify("Auto Rejoin", reason or "Reconectando...", C.Warning, 5)
-    SaveConfig() -- Salva antes de sair
+    SaveConfig()
     SetFeature("autoRejoin", false, true) 
+    SetFeature("rejoinTimer", false, true)
     task.wait(1)
     pcall(function()
         game:GetService("TeleportService"):Teleport(game.PlaceId, Player)
@@ -844,7 +844,7 @@ NewFeature("autoRejoin", "Auto Rejoin (Lag)", function()
             rejoinState.lowFpsSince = now
         elseif (now - rejoinState.lowFpsSince) >= math.max(5, S.autoRejoinTime) then
             DoRejoin(string.format("FPS abaixo de %d por %ds. Reconectando...", S.autoRejoinFpsLimit, S.autoRejoinTime))
-            rejoinState.lowFpsSince = now -- reseta para evitar loop se o teleport falhar
+            rejoinState.lowFpsSince = now
         end
     else
         rejoinState.lowFpsSince = nil
@@ -872,7 +872,7 @@ NewFeature("rejoinTimer", "Auto Rejoin (Tempo)", function()
     local elapsed = tick() - rejoinTimerState.startedAt
     if elapsed >= S.autoRejoinTimeInterval then
         DoRejoin(string.format("Tempo de %s atingido. Reconectando...", Fmt(S.autoRejoinTimeInterval)))
-        rejoinTimerState.startedAt = tick() -- reseta
+        rejoinTimerState.startedAt = tick()
         return 1
     end
     
@@ -1280,15 +1280,13 @@ local function LoadAutoRejoin()
 
     Z.Sep("⏱️  REJOIN POR TEMPO (FIXO)")
 
-    -- Toggle e slider que estavam faltando
-    FeatureToggle("rejoinTimer", "Auto Rejoin (Tempo)", "Reconecta após um tempo fixo, independente do lag.")
-    
-    Z.Toggle("Ativar Rejoin por Tempo", S.autoRejoinTimeEnabled, function(v) 
-        S.autoRejoinTimeEnabled = v 
+    -- Toggle único que controla a feature e a permissão
+    UI.rejoinTimer = Z.Toggle("Ativar Rejoin por Tempo", S.autoRejoinTimeEnabled, function(v)
+        S.autoRejoinTimeEnabled = v
+        SetFeature("rejoinTimer", v, true)
         SaveConfig()
-    end, "Liga/desliga o rejoin por tempo.")
+    end, "Reconecta após um tempo fixo, independente do lag.")
     
-    -- Slider de 1 min a 120 min (2h)
     Z.Slider("Reconectar a cada (minutos)", 1, 120, math.floor(S.autoRejoinTimeInterval / 60), function(v) 
         S.autoRejoinTimeInterval = v * 60 -- Converte de volta para segundos
         if Features.rejoinTimer and Features.rejoinTimer.running then
@@ -1297,7 +1295,6 @@ local function LoadAutoRejoin()
         SaveConfig()
     end, { step = 1, suffix = " min" })
 
-    -- Status do Timer
     local stTimer = Z.Stat("Próximo Rejoin (Timer)", "—")
     Z.PageLoop(0.5, function()
         pcall(function()
@@ -1364,5 +1361,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v11.3 (Tempo + Lag) carregado!", C.Success, 3)
-print("⚡ ETW Module v11.3 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v11.4 (Tempo + Lag) carregado!", C.Success, 3)
+print("⚡ ETW Module v11.4 iniciado")
