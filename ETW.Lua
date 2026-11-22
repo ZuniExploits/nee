@@ -1067,17 +1067,38 @@ local function DoRejoin(reason)
     task.wait(1)
 
     local ts = game:GetService("TeleportService")
-    local ok, err = pcall(function()
-        ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, Player)
-    end)
 
-    if not ok then
-        -- Fallback: se o servidor fechou ou a instância não existe mais,
-        -- entra em qualquer servidor do mesmo jogo.
-        warn("[ETW Rejoin] TeleportToPlaceInstance falhou:", err)
-        pcall(function()
-            ts:Teleport(game.PlaceId, Player)
+    -- Detecta se é um servidor privado (VIP)
+    local isPrivateServer = game.PrivateServerId ~= "" and game.PrivateServerOwnerId ~= 0
+
+    if isPrivateServer then
+        -- ✅ Servidor privado: usa VipServerId com TeleportAsync
+        local options = Instance.new("TeleportOptions")
+        options.VipServerId = game.PrivateServerId
+
+        local ok, err = pcall(function()
+            ts:TeleportAsync(game.PlaceId, {Player}, options)
         end)
+
+        if not ok then
+            warn("[ETW Rejoin] Falha ao rejoin no servidor privado:", err)
+            -- Fallback: tenta Teleport normal (pode cair em outro servidor)
+            pcall(function()
+                ts:Teleport(game.PlaceId, Player)
+            end)
+        end
+    else
+        -- Servidor comum: tenta rejoin no mesmo JobId
+        local ok, err = pcall(function()
+            ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, Player)
+        end)
+
+        if not ok then
+            warn("[ETW Rejoin] TeleportToPlaceInstance falhou:", err)
+            pcall(function()
+                ts:Teleport(game.PlaceId, Player)
+            end)
+        end
     end
 end
 
