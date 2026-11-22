@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v9.2                                        ║
--- ║  Grab Único • Eat contínuo (50ms) • Bedrock • Auto-Off             ║
+-- ║  ZUNI HUB - ETW MODULE v9.3                                        ║
+-- ║  Grab Único • Eat contínuo • Walk temporário em falha • Bedrock    ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -322,28 +322,47 @@ task.spawn(function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
+-- WALK TEMPORÁRIO (ligado em falha do Grab, desligado depois se estava off)
+-- ═══════════════════════════════════════════════════════════════════════
+local tempWalk = { active = false, wasOn = false, token = 0 }
+
+local function StartTempWalk()
+    if tempWalk.active then return end
+    tempWalk.active = true
+    tempWalk.wasOn = Features.walk and Features.walk.running or false
+    tempWalk.token += 1
+    if not tempWalk.wasOn then
+        SetFeature("walk", true, true)
+    end
+    local my = tempWalk.token
+    task.delay(math.max(0.5, S.grabFailMoveDuration), function()
+        if my ~= tempWalk.token then return end
+        if not tempWalk.active then return end
+        tempWalk.active = false
+        -- Só desliga se o walk NÃO estava ligado antes
+        if not tempWalk.wasOn and Features.walk and Features.walk.running then
+            SetFeature("walk", false, true)
+            Z.Notify("Auto Walk", "Desligado (era temporário).", C.TextDim, 2)
+        end
+    end)
+end
+
+local function StopTempWalk()
+    if not tempWalk.active then return end
+    tempWalk.active = false
+    tempWalk.token += 1
+    if not tempWalk.wasOn and Features.walk and Features.walk.running then
+        SetFeature("walk", false, true)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- GRAB (SÓ UMA VEZ quando não tiver chunk, só re-tenta após perder chunk)
 -- ═══════════════════════════════════════════════════════════════════════
-local grabFallback = { walking = false, wasWalkOn = false, moveUntil = 0 }
 local grabCooldown = { until_ = 0 }
 local bedrockState = { since = nil }
 local grabTried = false       -- já disparou o Grab desde que perdeu o chunk
 local grabSucceeded = false   -- conseguiu chunk em algum momento durante a tentativa
-
-local function StartTempWalk()
-    if grabFallback.walking then return end
-    grabFallback.wasWalkOn = Features.walk and Features.walk.running or false
-    grabFallback.walking = true
-    SetFeature("walk", true, true)
-end
-
-local function StopTempWalk()
-    if not grabFallback.walking then return end
-    grabFallback.walking = false
-    if not grabFallback.wasWalkOn then
-        SetFeature("walk", false, true)
-    end
-end
 
 local function ResetGrab()
     grabState.failSince = nil
@@ -359,12 +378,12 @@ end
 NewFeature("grab", "Auto Grab", function()
     -- Se ele JÁ TEM chunk, não tenta pegar. Marca sucesso e reseta a flag.
     if HasChunk() then
-        grabSucceeded = true      -- confirma que o grab deu certo
-        grabTried = false         -- pode tentar de novo quando perder o chunk
+        grabSucceeded = true
+        grabTried = false
         grabState.failSince = nil
         grabState.stuckSince = nil
         grabCooldown.until_ = 0
-        if grabFallback.walking and tick() >= grabFallback.moveUntil then
+        if tempWalk.active then
             StopTempWalk()
         end
         return 0.05
@@ -390,7 +409,7 @@ NewFeature("grab", "Auto Grab", function()
             if not (Features.walk and Features.walk.running) then
                 StartTempWalk()
                 task.delay(S.grabWalkWait, function()
-                    if grabFallback.walking and not (Features.walk and Features.walk.running) then
+                    if tempWalk.active and not (Features.walk and Features.walk.running) then
                         StopTempWalk()
                     end
                 end)
@@ -416,20 +435,21 @@ NewFeature("grab", "Auto Grab", function()
     task.delay(3.0, function()
         if not Features.grab or not Features.grab.running then return end
 
-        -- ✅ CORREÇÃO: se em algum momento durante os 3s o jogador TEVE chunk,
-        -- considera sucesso (mesmo que já tenha comido/vendido)
+        -- Sucesso: teve chunk em algum momento durante os 3s
         if grabSucceeded or HasChunk() then
             grabTried = false
             return
         end
 
-        -- Falhou de verdade após 3s (nunca teve chunk durante a tentativa)
+        -- ⚠️ FALHOU de verdade após 3s (nunca teve chunk durante a tentativa)
         grabCooldown.until_ = tick() + S.grabFailCooldown
         grabTried = false
-        if S.grabWalkFallback and not grabFallback.walking then
+
+        -- ✅ Liga Auto Walk temporariamente (se estava desligado)
+        if S.grabWalkFallback then
             StartTempWalk()
-            grabFallback.moveUntil = tick() + S.grabFailMoveDuration
         end
+
         Z.Notify("Auto Grab", "Falhou ao pegar após 3s. Aguardando " .. S.grabFailCooldown .. "s.", C.Warning, 2)
     end)
 
@@ -666,6 +686,9 @@ local function ApplyPreset(name)
     grabCooldown.until_ = 0
     grabTried = false
     grabSucceeded = false
+    tempWalk.active = false
+    tempWalk.wasOn = false
+    tempWalk.token += 1
     ResetAutoOff()
     StopTempWalk()
 
@@ -819,7 +842,7 @@ local function LoadMain()
 
     Z.Toggle("Movimento aleatório após falha", S.grabWalkFallback, function(v)
         S.grabWalkFallback = v
-    end, "Se não conseguir chunk após 3s, anda aleatoriamente")
+    end, "Se não conseguir chunk após 3s, liga o Auto Walk temporariamente")
     Z.Slider("Duração do movimento", 0.5, 10, S.grabFailMoveDuration, function(v)
         S.grabFailMoveDuration = v
     end, { step = 0.5, suffix = " s" })
@@ -898,5 +921,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v9.2 carregado!", C.Success, 3)
-print("⚡ ETW Module v9.2 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v9.3 carregado!", C.Success, 3)
+print("⚡ ETW Module v9.3 iniciado")
