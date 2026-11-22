@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v10.4                                       ║
--- ║  Auto Upgrades (igual ShopScript) • Toggles visuais                ║
+-- ║  ZUNI HUB - ETW MODULE v10.5                                       ║
+-- ║  Auto Upgrades com Dropdown • Dropdowns da base melhorados         ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -83,7 +83,7 @@ Def("autoPauseDelay", 5)
 -- Auto Upgrades
 Def("autoUpgradesEnabled", false)
 Def("autoUpgradesInterval", 1000)
-Def("autoUpgradesSelected", {})
+Def("autoUpgradesSelectedName", nil) -- dropdown agora guarda uma string única
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS
@@ -722,8 +722,8 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════
 NewFeature("autoUpgrades", "Auto Upgrades", function()
     if not S.autoUpgradesEnabled then return 1 end
-    local selected = S.autoUpgradesSelected or {}
-    if type(selected) ~= "table" then return 1 end
+    local selectedName = S.autoUpgradesSelectedName
+    if not selectedName or selectedName == "" then return 1 end
 
     local upgradesFolder = GetUpgradesFolder()
     local info = GetItemInfo()
@@ -733,25 +733,22 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
     local purchaseEvent = GetEvent("PurchaseEvent")
     if not purchaseEvent then return 1 end
 
-    for _, name in ipairs(AUTO_UPGRADE_NAMES) do
-        if selected[name] then
-            local val = upgradesFolder:FindFirstChild(name)
-            local upgradeInfo = info.Upgrades[name]
-            
-            if val and upgradeInfo and (val:IsA("NumberValue") or val:IsA("IntValue")) then
-                local nextLevel = val.Value + 1
-                local price = 0
-                
-                if type(upgradeInfo.priceFunction) == "function" then
-                    pcall(function() price = upgradeInfo.priceFunction(nextLevel) end)
-                end
-                
-                if cubes >= price then
-                    pcall(function() purchaseEvent:FireServer(name) end)
-                end
-            end
+    local val = upgradesFolder:FindFirstChild(selectedName)
+    local upgradeInfo = info.Upgrades[selectedName]
+    
+    if val and upgradeInfo and (val:IsA("NumberValue") or val:IsA("IntValue")) then
+        local nextLevel = val.Value + 1
+        local price = 0
+        
+        if type(upgradeInfo.priceFunction) == "function" then
+            pcall(function() price = upgradeInfo.priceFunction(nextLevel) end)
+        end
+        
+        if cubes >= price then
+            pcall(function() purchaseEvent:FireServer(selectedName) end)
         end
     end
+    
     return math.max(0.1, (S.autoUpgradesInterval or 1000) / 1000)
 end, { onStop = function() end })
 
@@ -1071,32 +1068,43 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 -- ABA: AUTO UPGRADES
 -- ═══════════════════════════════════════════════════════════════════════
-local upgradeToggles = {}
-
 local function LoadAutoUpgrades()
     Z.Sep("⚡  AUTO UPGRADES")
-    Z.Info("Selecione quais upgrades o bot compra automaticamente (somente se tiver Cubes). O Auto Upgrade tenta comprar a cada 1s.")
+    Z.Info("Selecione qual upgrade o bot deve comprar automaticamente (somente se tiver Cubes). O Auto Upgrade tenta comprar a cada 1s.")
 
-    if type(S.autoUpgradesSelected) ~= "table" then
-        S.autoUpgradesSelected = {}
-    end
-
+    -- Prepara a lista de opções formatadas e um mapa delas para os nomes internos
+    local options = {}
+    local mapToInternal = {}
+    
     for _, name in ipairs(AUTO_UPGRADE_NAMES) do
         local display = GetUpgradeDisplayName(name)
-        
-        upgradeToggles[name] = Z.Toggle("🎯  " .. display, S.autoUpgradesSelected[name] == true, function(v)
-            S.autoUpgradesSelected[name] = v
-            if v then
-                Z.Notify("Auto Upgrades", "Selecionado: " .. display, C.Success, 1.5)
-            else
-                Z.Notify("Auto Upgrades", "Desselecionado: " .. display, C.TextDim, 1.5)
+        table.insert(options, display)
+        mapToInternal[display] = name
+    end
+
+    -- Dropdown de seleção única
+    local dropdownObj = Z.Dropdown("Upgrade Alvo", options, nil, function(selectedDisplay)
+        if selectedDisplay then
+            S.autoUpgradesSelectedName = mapToInternal[selectedDisplay]
+            Z.Notify("Auto Upgrades", "Selecionado: " .. selectedDisplay, C.Success, 1.5)
+        else
+            S.autoUpgradesSelectedName = nil
+        end
+    end, "Qual upgrade deve ser comprado automaticamente?")
+
+    -- Define o valor inicial do dropdown caso já tenha um salvo
+    if S.autoUpgradesSelectedName then
+        for display, internal in pairs(mapToInternal) do
+            if internal == S.autoUpgradesSelectedName then
+                dropdownObj.Set(display, true)
+                break
             end
-        end, "Ativar/desativar upgrade automático para " .. display)
+        end
     end
 
     Z.Sep("🤖  AUTOMAÇÃO")
     FeatureToggle("autoUpgrades", "Auto Upgrade",
-        "Tenta comprar os upgrades selecionados a cada 1s (verifica o preço e os Cubes).")
+        "Tenta comprar o upgrade selecionado a cada 1s (verifica o preço e os Cubes).")
     Z.Slider("Intervalo do Auto Upgrade", 200, 5000, S.autoUpgradesInterval, function(v)
         S.autoUpgradesInterval = v
     end, { step = 100, suffix = " ms" })
@@ -1138,5 +1146,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v10.4 carregado!", C.Success, 3)
-print("⚡ ETW Module v10.4 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v10.5 carregado!", C.Success, 3)
+print("⚡ ETW Module v10.5 iniciado")
