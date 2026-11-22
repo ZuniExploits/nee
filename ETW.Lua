@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v10.1                                       ║
--- ║  Aba Auto Upgrades • Unstuck unificado • Sem aba de atalhos        ║
+-- ║  ZUNI HUB - ETW MODULE v10.2                                       ║
+-- ║  Auto Upgrades (corrigido) • Unstuck • Sem aba de atalhos          ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -82,8 +82,8 @@ Def("autoPauseDelay", 5)
 
 -- Auto Upgrades
 Def("autoUpgradesEnabled", false)
-Def("autoUpgradesInterval", 1000)   -- ms
-Def("autoUpgradesSelected", {})     -- tabela de selecionados
+Def("autoUpgradesInterval", 1000)
+Def("autoUpgradesSelected", {})
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS
@@ -198,7 +198,6 @@ local function GetUpgradesFolder()
     return Player:FindFirstChild("Upgrades")
 end
 
--- Nomes amigáveis dos upgrades (tenta bater com ItemInfo.Upgrades)
 local AUTO_UPGRADE_NAMES = {
     "Size",
     "Speed",
@@ -211,7 +210,6 @@ local function GetUpgradeDisplayName(name)
     if info and info.Upgrades and info.Upgrades[name] then
         return info.Upgrades[name].name or name
     end
-    -- fallback amigável
     local pretty = name:gsub("(%l)(%u)", "%1 %2")
     return pretty
 end
@@ -261,7 +259,9 @@ local function SetFeature(key, v, quiet)
         if ft.onStop then pcall(ft.onStop) end
     end
     local ui = UI[key]
-    if ui and ui.Frame.Parent then ui.Set(v, true) end
+    if ui and ui.Frame.Parent and type(ui.Set) == "function" then
+        ui.Set(v, true)
+    end
     if not quiet then
         Z.Notify(ft.label, v and "Ativado" or "Desativado", v and C.Success or C.TextDim, 1.5)
     end
@@ -694,7 +694,7 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES (feature)
+-- AUTO UPGRADES
 -- ═══════════════════════════════════════════════════════════════════════
 local function FirePurchaseUpgrade(name)
     local purchaseEvent = GetEvent("PurchaseEvent")
@@ -709,13 +709,11 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
     local upgradesFolder = GetUpgradesFolder()
     if not upgradesFolder then return 1 end
 
-    local any = false
     for _, name in ipairs(AUTO_UPGRADE_NAMES) do
         if selected[name] then
             local val = upgradesFolder:FindFirstChild(name)
             if val and (val:IsA("NumberValue") or val:IsA("IntValue")) then
                 FirePurchaseUpgrade(name)
-                any = true
             end
         end
     end
@@ -1038,13 +1036,25 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 local upgradeButtons = {}
 
-local function SelectUpgrade(name)
+local function RefreshUpgradeButton(name)
+    local btn = upgradeButtons[name]
+    if not btn then return end
+    local isSelected = S.autoUpgradesSelected and S.autoUpgradesSelected[name]
+
+    -- Altera a cor de fundo dependendo do estado (verde se selecionado)
+    if isSelected then
+        btn.BackgroundColor3 = C.Success or Color3.fromRGB(82, 176, 77)
+    else
+        btn.BackgroundColor3 = C.TextDim or Color3.fromRGB(60, 60, 60)
+    end
+end
+
+local function ToggleUpgrade(name)
     S.autoUpgradesSelected = S.autoUpgradesSelected or {}
     S.autoUpgradesSelected[name] = not S.autoUpgradesSelected[name]
-    local btn = upgradeButtons[name]
-    if btn then
-        btn:Set(S.autoUpgradesSelected[name], true)
-    end
+
+    RefreshUpgradeButton(name)
+
     Z.Notify("Auto Upgrades",
         (S.autoUpgradesSelected[name] and "Selecionado: " or "Desselecionado: ") .. GetUpgradeDisplayName(name),
         S.autoUpgradesSelected[name] and C.Success or C.TextDim, 1.5)
@@ -1058,11 +1068,15 @@ local function LoadAutoUpgrades()
 
     for _, name in ipairs(AUTO_UPGRADE_NAMES) do
         local display = GetUpgradeDisplayName(name)
+
+        -- Cria o botão
         local btn = Z.Button("🎯  " .. display, C.TextDim, function()
-            SelectUpgrade(name)
+            ToggleUpgrade(name)
         end)
+
+        -- Guarda a referência e atualiza a cor inicial
         upgradeButtons[name] = btn
-        btn:Set(S.autoUpgradesSelected[name] == true, true)
+        RefreshUpgradeButton(name)
     end
 
     Z.Sep("🤖  AUTOMAÇÃO")
@@ -1109,5 +1123,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v10.1 carregado!", C.Success, 3)
-print("⚡ ETW Module v10.1 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v10.2 carregado!", C.Success, 3)
+print("⚡ ETW Module v10.2 iniciado")
