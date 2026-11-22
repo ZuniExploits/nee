@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v11.7 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  ZUNI HUB - ETW MODULE v11.8 - EDICÃO LEVE + SALVAMENTO            ║
 -- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Auto Upgrade Cego      ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -94,7 +94,7 @@ Def("autoRejoinFpsLimit", 20)
 Def("autoRejoinTime", 60)
 
 -- Auto Rejoin (Tempo Fixo)
-Def("autoRejoinTimeInterval", 1800) -- 30 min padrão (em segundos)
+Def("autoRejoinTimeInterval", 1800)
 
 -- Estado das Features (para salvar)
 Def("ActiveFeatures", {})
@@ -125,7 +125,6 @@ local function LoadConfig()
     end
 end
 
--- Carrega antes de criar as features
 LoadConfig()
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -149,10 +148,32 @@ local function FireEvent(name)
     return true
 end
 
+-- ✅ CORREÇÃO: GetEvent agora busca em ReplicatedStorage.Events (caminho exato do ShopScript)
 local function GetEvent(name)
     local evs = RS:FindFirstChild("Events")
-    return evs and evs:FindFirstChild(name) or nil
+    if not evs then return nil end
+    return evs:FindFirstChild(name)
 end
+
+-- ✅ NOVO: função específica para pegar o PurchaseEvent (usado pelo ShopScript)
+local function GetPurchaseEvent()
+    local evs = RS:FindFirstChild("Events")
+    if not evs then
+        warn("[ETW] ReplicatedStorage.Events não encontrado!")
+        return nil
+    end
+    local ev = evs:FindFirstChild("PurchaseEvent")
+    if not ev then
+        warn("[ETW] ReplicatedStorage.Events.PurchaseEvent não encontrado!")
+        return nil
+    end
+    if not ev:IsA("RemoteEvent") then
+        warn("[ETW] PurchaseEvent não é RemoteEvent! É: " .. ev.ClassName)
+        return nil
+    end
+    return ev
+end
+
 local function GetServerSettings() return RS:FindFirstChild("ServerSettings") end
 
 local function HasChunk()
@@ -223,7 +244,7 @@ local function TeleportToPlatform()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES — helpers
+-- AUTO UPGRADES — helpers (baseados no ShopScript)
 -- ═══════════════════════════════════════════════════════════════════════
 local ItemInfo = nil
 local function GetItemInfo()
@@ -237,12 +258,63 @@ local function GetItemInfo()
     return ItemInfo or nil
 end
 
+-- ✅ Lista de upgrades válidos (mesmos nomes internos que o jogo usa)
 local AUTO_UPGRADE_NAMES = {
     "Size",
     "Speed",
     "SizeMultiplier",
     "EatSpeed",
 }
+
+-- ✅ NOVO: pega o valor atual do upgrade (NumberValue/IntValue em LocalPlayer.Upgrades)
+local function GetUpgradeValue(name)
+    local upgrades = Player:FindFirstChild("Upgrades")
+    if not upgrades then return nil end
+    local val = upgrades:FindFirstChild(name)
+    if val and (val:IsA("NumberValue") or val:IsA("IntValue")) then
+        return val.Value
+    end
+    return nil
+end
+
+-- ✅ NOVO: pega o preço do próximo nível usando ItemInfo (igual ao ShopScript)
+local function GetUpgradePrice(name)
+    local info = GetItemInfo()
+    if not info or not info.Upgrades or not info.Upgrades[name] then return nil end
+    local currentLevel = GetUpgradeValue(name)
+    if currentLevel == nil then return nil end
+    local ok, price = pcall(function() return info.Upgrades[name].priceFunction(currentLevel + 1) end)
+    return ok and price or nil
+end
+
+-- ✅ NOVO: pega o saldo de Cubes (o ShopScript usa n1, que vem de SetCubes/CubesAdded)
+-- Na prática, o valor real fica em LocalPlayer.Cubes ou similar. Vamos tentar vários caminhos.
+local function GetCubes()
+    -- Tenta LocalPlayer.Cubes (NumberValue/IntValue)
+    local cubes = Player:FindFirstChild("Cubes")
+    if cubes and (cubes:IsA("NumberValue") or cubes:IsA("IntValue")) then
+        return cubes.Value
+    end
+    -- Tenta LocalPlayer.Stats.Cubes
+    local stats = Player:FindFirstChild("Stats")
+    if stats then
+        local c = stats:FindFirstChild("Cubes")
+        if c and (c:IsA("NumberValue") or c:IsA("IntValue")) then return c.Value end
+    end
+    -- Tenta ler da UI do Shop (CubeFrame.CounterFrame.Cubes) — fallback
+    local pg = Player:FindFirstChild("PlayerGui")
+    local sg = pg and pg:FindFirstChild("ScreenGui")
+    local shop = sg and sg:FindFirstChild("Shop")
+    local cubeFrame = shop and shop:FindFirstChild("CubeFrame")
+    local counterFrame = cubeFrame and cubeFrame:FindFirstChild("CounterFrame")
+    local cubesLabel = counterFrame and counterFrame:FindFirstChild("Cubes")
+    if cubesLabel and cubesLabel:IsA("TextLabel") then
+        local txt = cubesLabel.Text:gsub(",", "")
+        local n = tonumber(txt)
+        if n then return n end
+    end
+    return nil
+end
 
 local function GetUpgradeDisplayName(name)
     local info = GetItemInfo()
@@ -752,21 +824,53 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES (Blindado / Cego)
+-- AUTO UPGRADES (CORRIGIDO — igual ao ShopScript)
+-- ═══════════════════════════════════════════════════════════════════════
+-- O ShopScript faz: PurchaseEvent:FireServer(child.Name)
+-- onde child.Name é o nome interno do upgrade (NumberValue/IntValue em LocalPlayer.Upgrades).
+-- Não precisamos checar preço nem Cubes — o servidor valida. O pcall previne crash.
 -- ═══════════════════════════════════════════════════════════════════════
 NewFeature("autoUpgrades", "Auto Upgrades", function()
     if not S.autoUpgradesEnabled then return 1 end
     local selectedName = S.autoUpgradesSelectedName
     if not selectedName or selectedName == "" then return 1 end
 
-    local purchaseEvent = GetEvent("PurchaseEvent")
-    if not purchaseEvent then return 1 end
+    -- Valida que o upgrade existe em LocalPlayer.Upgrades (mesmo caminho do ShopScript)
+    local upgrades = Player:FindFirstChild("Upgrades")
+    if not upgrades then
+        Z.Notify("Auto Upgrades", "LocalPlayer.Upgrades não encontrado!", C.Warning, 3)
+        return 2
+    end
+    local upgradeValue = upgrades:FindFirstChild(selectedName)
+    if not upgradeValue then
+        Z.Notify("Auto Upgrades", "Upgrade '" .. selectedName .. "' não existe em Upgrades!", C.Warning, 3)
+        return 2
+    end
+    if not (upgradeValue:IsA("NumberValue") or upgradeValue:IsA("IntValue")) then
+        Z.Notify("Auto Upgrades", "Upgrade '" .. selectedName .. "' não é NumberValue/IntValue!", C.Warning, 3)
+        return 2
+    end
 
-    -- Dispara o evento cegamente (sem checar preço, sem checar Cubes, sem ler UI)
-    pcall(function() purchaseEvent:FireServer(selectedName) end)
-    
-    -- Retorna 10 segundos para o próximo disparo
-    return 10
+    -- Pega o PurchaseEvent exato do ShopScript
+    local purchaseEvent = GetPurchaseEvent()
+    if not purchaseEvent then
+        Z.Notify("Auto Upgrades", "PurchaseEvent não encontrado em ReplicatedStorage.Events!", C.Danger, 3)
+        return 2
+    end
+
+    -- Dispara exatamente como o ShopScript: FireServer(nomeInterno)
+    local ok, err = pcall(function()
+        purchaseEvent:FireServer(selectedName)
+    end)
+    if not ok then
+        Z.Notify("Auto Upgrades", "Erro ao disparar: " .. tostring(err), C.Danger, 3)
+        return 2
+    end
+
+    -- Log de debug (opcional — remova se não quiser spam)
+    -- print("[ETW AutoUpgrades] FireServer('" .. selectedName .. "') | Nível: " .. upgradeValue.Value)
+
+    return 10 -- Intervalo de 10s entre tentativas (cego)
 end, { onStop = function() end })
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -933,6 +1037,7 @@ local function LoadMain()
     local stReward = Z.Stat("Próxima reward", "—")
     local stActive = Z.Stat("Funções ativas", "0")
     local stSizeStuck = Z.Stat("Size parado há", "—")
+    local stCubes  = Z.Stat("Cubes", "—") -- ✅ NOVO: monitor de Cubes
     Z.PageLoop(0.5, function()
         pcall(function()
             local sz = GetSize()
@@ -959,6 +1064,8 @@ local function LoadMain()
             else
                 stSizeStuck.Set("—", C.TextDim)
             end
+            local cubes = GetCubes()
+            stCubes.Set(cubes and tostring(cubes) or "—", cubes and C.Accent or C.TextDim)
         end)
     end)
 
@@ -1166,27 +1273,55 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadAutoUpgrades()
     Z.Sep("⚡  AUTO UPGRADES")
-    Z.Info("Selecione qual upgrade o bot deve comprar. Ele tentará comprar cegamente a cada 10 segundos (sem checar preço ou saldo).")
+    Z.Info("Selecione qual upgrade o bot deve comprar. Ele dispara PurchaseEvent:FireServer(nomeInterno) a cada 10s (sem checar preço ou saldo — o servidor valida).")
 
+    -- ✅ NOVO: usa os nomes internos reais (não display names) e monta o dropdown
     local options = {}
     local mapToInternal = {}
-    
-    for _, name in ipairs(AUTO_UPGRADE_NAMES) do
-        local display = GetUpgradeDisplayName(name)
-        table.insert(options, display)
-        mapToInternal[display] = name
+    local upgradesFolder = Player:FindFirstChild("Upgrades")
+
+    if upgradesFolder then
+        for _, child in ipairs(upgradesFolder:GetChildren()) do
+            if child:IsA("NumberValue") or child:IsA("IntValue") then
+                local internalName = child.Name
+                local display = GetUpgradeDisplayName(internalName)
+                -- Evita duplicatas
+                if not mapToInternal[display] then
+                    table.insert(options, display)
+                    mapToInternal[display] = internalName
+                end
+            end
+        end
+    end
+
+    -- Fallback: se Upgrades não existir ainda, usa a lista fixa
+    if #options == 0 then
+        for _, name in ipairs(AUTO_UPGRADE_NAMES) do
+            local display = GetUpgradeDisplayName(name)
+            table.insert(options, display)
+            mapToInternal[display] = name
+        end
+        Z.Info("⚠ LocalPlayer.Upgrades não encontrado ainda. Usando lista fixa. Reabra a aba após entrar no jogo.")
     end
 
     local dropdownObj = Z.Dropdown("Upgrade Alvo", options, nil, function(selectedDisplay)
-        if selectedDisplay then
+        if selectedDisplay and mapToInternal[selectedDisplay] then
             S.autoUpgradesSelectedName = mapToInternal[selectedDisplay]
-            Z.Notify("Auto Upgrades", "Selecionado: " .. selectedDisplay, C.Success, 1.5)
+            local lvl = GetUpgradeValue(S.autoUpgradesSelectedName)
+            local price = GetUpgradePrice(S.autoUpgradesSelectedName)
+            Z.Notify("Auto Upgrades",
+                string.format("Selecionado: %s (Nível: %s | Próximo: %s)",
+                    selectedDisplay,
+                    lvl ~= nil and tostring(lvl) or "?",
+                    price ~= nil and tostring(price) or "?"),
+                C.Success, 2.5)
         else
             S.autoUpgradesSelectedName = nil
         end
         SaveConfig()
     end, "Qual upgrade deve ser comprado?")
 
+    -- Restaura seleção salva
     if S.autoUpgradesSelectedName then
         for display, internal in pairs(mapToInternal) do
             if internal == S.autoUpgradesSelectedName then
@@ -1196,11 +1331,46 @@ local function LoadAutoUpgrades()
         end
     end
 
+    -- ✅ NOVO: status em tempo real do upgrade selecionado
+    Z.Sep("📊  STATUS DO UPGRADE")
+    local stUpgName  = Z.Stat("Upgrade selecionado", "—")
+    local stUpgLevel = Z.Stat("Nível atual", "—")
+    local stUpgPrice = Z.Stat("Preço próximo nível", "—")
+    local stCubes    = Z.Stat("Cubes disponíveis", "—")
+    local stCanBuy   = Z.Stat("Pode comprar?", "—")
+    Z.PageLoop(0.5, function()
+        pcall(function()
+            local name = S.autoUpgradesSelectedName
+            if not name then
+                stUpgName.Set("—"); stUpgLevel.Set("—"); stUpgPrice.Set("—")
+                stCanBuy.Set("—", C.TextDim)
+                return
+            end
+            stUpgName.Set(GetUpgradeDisplayName(name))
+            local lvl = GetUpgradeValue(name)
+            stUpgLevel.Set(lvl ~= nil and tostring(lvl) or "—")
+            local price = GetUpgradePrice(name)
+            stUpgPrice.Set(price ~= nil and tostring(price) or "—")
+            local cubes = GetCubes()
+            stCubes.Set(cubes ~= nil and tostring(cubes) or "—")
+            if price ~= nil and cubes ~= nil then
+                if cubes >= price then
+                    stCanBuy.Set("Sim", C.Success)
+                else
+                    stCanBuy.Set("Não (faltam " .. (price - cubes) .. ")", C.Warning)
+                end
+            else
+                stCanBuy.Set("?", C.TextDim)
+            end
+        end)
+    end)
+
     Z.Sep("🤖  AUTOMAÇÃO")
     FeatureToggle("autoUpgrades", "Auto Upgrade (Cego)",
-        "Dispara o evento de compra a cada 10 segundos sem checar nada.")
-        
-    Z.Info("⚠ O script NÃO vai verificar se você tem saldo ou se o preço subiu. Ele simplesmente manda o evento de compra a cada 10 segundos.")
+        "Dispara PurchaseEvent:FireServer(nomeInterno) a cada 10s sem checar nada. O servidor valida saldo e preço.")
+
+    Z.Info("⚠ O script NÃO verifica saldo ou preço. Ele simplesmente manda o evento de compra a cada 10 segundos. Se o servidor rejeitar (sem saldo), nada acontece.")
+    Z.Info("💡 Dica: o ShopScript faz exatamente PurchaseEvent:FireServer(child.Name). Este módulo faz o mesmo.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1302,5 +1472,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v11.7 (Cego) carregado!", C.Success, 3)
-print("⚡ ETW Module v11.7 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v11.8 (Auto Upgrade corrigido) carregado!", C.Success, 3)
+print("⚡ ETW Module v11.8 iniciado")
