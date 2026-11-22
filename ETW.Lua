@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v11.4 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  ZUNI HUB - ETW MODULE v11.5 - EDICÃO LEVE + SALVAMENTO            ║
 -- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Limpeza Total          ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -1280,7 +1280,7 @@ local function LoadAutoRejoin()
 
     Z.Sep("⏱️  REJOIN POR TEMPO (FIXO)")
 
-    -- Toggle único que controla a feature e a permissão
+    -- ÚNICO toggle que liga/desliga o rejoin por tempo e a permissão
     UI.rejoinTimer = Z.Toggle("Ativar Rejoin por Tempo", S.autoRejoinTimeEnabled, function(v)
         S.autoRejoinTimeEnabled = v
         SetFeature("rejoinTimer", v, true)
@@ -1361,5 +1361,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v11.4 (Tempo + Lag) carregado!", C.Success, 3)
-print("⚡ ETW Module v11.4 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v11.5 (Tempo + Lag) carregado!", C.Success, 3)
+print("⚡ ETW Module v11.5 iniciado")
