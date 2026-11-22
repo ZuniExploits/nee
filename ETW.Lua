@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v11.0 - EDICÃO LEVE                         ║
--- ║  Auto Rejoin • Dropdowns • Limpeza Total de Memória                ║
+-- ║  ZUNI HUB - ETW MODULE v11.1 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  Auto Rejoin • Dropdowns • Limpeza Total • Salva Configs           ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -20,6 +20,9 @@ local Player = game:GetService("Players").LocalPlayer
 local UIS    = game:GetService("UserInputService")
 local RS     = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+
+local HttpService = game:GetService("HttpService")
+local SAVE_FILE = "ZuniETW_Config.json"
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- CONFIG
@@ -92,6 +95,39 @@ Def("autoRejoinFpsLimit", 20)
 Def("autoRejoinTime", 60)
 Def("autoRejoinMinTime", 60)
 Def("autoRejoinMaxTime", 7200)
+
+-- Estado das Features (para salvar)
+Def("ActiveFeatures", {})
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- SALVAMENTO E CARREGAMENTO
+-- ═══════════════════════════════════════════════════════════════════════
+local function SaveConfig()
+    if not writefile then return end
+    local saveData = {
+        settings = S,
+        activeFeatures = S.ActiveFeatures
+    }
+    local ok, json = pcall(function() return HttpService:JSONEncode(saveData) end)
+    if ok then
+        pcall(function() writefile(SAVE_FILE, json) end)
+    end
+end
+
+local function LoadConfig()
+    if not isfile or not isfile(SAVE_FILE) then return end
+    local ok, content = pcall(readfile, SAVE_FILE)
+    if not ok or not content or content == "" then return end
+    local ok2, data = pcall(function() return HttpService:JSONDecode(content) end)
+    if ok2 and type(data) == "table" then
+        -- Sobrescreve as configurações com as salvas
+        for k, v in pairs(data.settings or {}) do S[k] = v end
+        S.ActiveFeatures = data.activeFeatures or {}
+    end
+end
+
+-- Carrega antes de criar as features
+LoadConfig()
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS
@@ -247,10 +283,10 @@ local function GetUpgradeDisplayName(name)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- FEATURES (com gerenciamento de conexões)
+-- FEATURES
 -- ═══════════════════════════════════════════════════════════════════════
 local Features = {}
-local FeatureConns = {} -- Armazena conexões por feature
+local FeatureConns = {}
 
 local function NewFeature(key, label, body, opts)
     opts = opts or {}
@@ -258,7 +294,7 @@ local function NewFeature(key, label, body, opts)
         key = key, label = label, body = body, running = false, gen = 0,
         exclusive = opts.exclusive, onStart = opts.onStart, onStop = opts.onStop,
     }
-    FeatureConns[key] = {} -- Inicializa a tabela de conexões da feature
+    FeatureConns[key] = {}
 end
 
 local function RunLoop(ft)
@@ -286,20 +322,22 @@ local function CleanupFeature(key)
     end
 end
 
-local function SetFeature(key, v, quiet)
+local function SetFeature(key, v, quiet, isRestoring)
     local ft = Features[key]
     if not ft then return end
     v = not not v
     if v == ft.running then return end
     
-    -- Se desligou, limpa tudo
     if not v then
         ft.gen += 1
         CleanupFeature(key)
         if ft.onStop then pcall(ft.onStop) end
+        S.ActiveFeatures[key] = nil
+    else
+        S.ActiveFeatures[key] = true
     end
     
-    if v and ft.exclusive then SetFeature(ft.exclusive, false, true) end
+    if v and ft.exclusive then SetFeature(ft.exclusive, false, true, isRestoring) end
     ft.running = v
     
     if v then
@@ -314,6 +352,11 @@ local function SetFeature(key, v, quiet)
     
     if not quiet then
         Z.Notify(ft.label, v and "Ativado" or "Desativado", v and C.Success or C.TextDim, 1.5)
+    end
+    
+    -- Salva sempre que muda
+    if not isRestoring then
+        SaveConfig()
     end
 end
 
@@ -339,10 +382,7 @@ end
 
 local function SkipMap(reason)
     local ev = GetEvent("SetServerSettings")
-    if not ev then
-        Z.Notify("Skip Map", "Evento SetServerSettings não encontrado.", C.Danger, 3)
-        return false
-    end
+    if not ev then return false end
     pcall(function() ev:FireServer({ MapTime = SKIP_MAPTIME }) end)
     lastSkip = tick()
     grabState.failSince = nil
@@ -399,9 +439,6 @@ end
 
 task.spawn(function()
     task.wait(1)
-    local okS, _ = pcall(function() return RunService end)
-    if not okS then return end
-    
     local conn = RunService.Heartbeat:Connect(function()
         pcall(function()
             if not Z.Alive then return end
@@ -745,7 +782,7 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES (Feature)
+-- AUTO UPGRADES
 -- ═══════════════════════════════════════════════════════════════════════
 NewFeature("autoUpgrades", "Auto Upgrades", function()
     if not S.autoUpgradesEnabled then return 1 end
@@ -827,18 +864,18 @@ end, { onStart = function() rejoinState.lowFpsSince = nil end, onStop = function
 -- PRESETS
 -- ═══════════════════════════════════════════════════════════════════════
 local function ApplyPreset(name)
-    for key in pairs(Features) do SetFeature(key, false, true) end
+    for key in pairs(Features) do SetFeature(key, false, true, true) end
     grabState.failSince = nil; grabState.stuckSince = nil; grabState.lastPos = nil
     grabCooldown.until_ = 0; grabTried = false; grabSucceeded = false
     ResetAutoOff(); ResetSizeStuck(); StopTempWalk()
 
     if name == "normal" then
-        SetFeature("grab", true, true)
-        SetFeature("eat", true, true)
-        SetFeature("smartSell", true, true)
-        SetFeature("rewards", true, true)
-        SetFeature("sizeStuckSkip", true, true)
-        SetFeature("walk", true, true)
+        SetFeature("grab", true, true, true)
+        SetFeature("eat", true, true, true)
+        SetFeature("smartSell", true, true, true)
+        SetFeature("rewards", true, true, true)
+        SetFeature("sizeStuckSkip", true, true, true)
+        SetFeature("walk", true, true, true)
         S.skipOnSmartSell = false
         S.grabTeleportEnabled = true
         S.grabWalkFallback = true
@@ -858,12 +895,12 @@ local function ApplyPreset(name)
         Z.Notify("Preset", "Normal Farm ativado.", C.Success, 3)
 
     elseif name == "static" then
-        SetFeature("grab", true, true)
-        SetFeature("eat", true, true)
-        SetFeature("smartSell", true, true)
-        SetFeature("rewards", true, true)
-        SetFeature("sizeStuckSkip", true, true)
-        SetFeature("walk", false, true)
+        SetFeature("grab", true, true, true)
+        SetFeature("eat", true, true, true)
+        SetFeature("smartSell", true, true, true)
+        SetFeature("rewards", true, true, true)
+        SetFeature("sizeStuckSkip", true, true, true)
+        SetFeature("walk", false, true, true)
         S.skipOnSmartSell = true
         S.grabTeleportEnabled = true
         S.grabWalkFallback = false
@@ -882,14 +919,7 @@ local function ApplyPreset(name)
         S.autoPauseDelay = 5
         Z.Notify("Preset", "Farm #1 (parado + SkipOnSmartSell) ativado.", C.Success, 3)
     end
-
-    if Z.CurrentTab == "Main" then
-        for key, ui in pairs(UI) do
-            if ui and ui.Set and Features[key] then
-                pcall(function() ui.Set(Features[key].running, true) end)
-            end
-        end
-    end
+    SaveConfig()
 end
 
 local function LoadPresets()
@@ -981,6 +1011,10 @@ local function LoadMain()
         collectgarbage("collect")
         Z.Notify("Sistema", "Memória limpa (Garbage Collector executado).", C.Success, 2)
     end)
+    Z.Button("💾  Salvar Configurações", C.Success, function()
+        SaveConfig()
+        Z.Notify("Sistema", "Configurações salvas manualmente.", C.Success, 2)
+    end)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -993,6 +1027,7 @@ local function LoadGrab()
 
     Z.Slider("Cooldown após falha", 0.5, 15, S.grabFailCooldown, function(v)
         S.grabFailCooldown = v
+        SaveConfig()
     end, { step = 0.5, suffix = " s" })
 end
 
@@ -1004,21 +1039,23 @@ local function LoadEatSell()
     FeatureToggle("eat", "Auto Eat", "Come automaticamente se tiver um chunk.")
     Z.Slider("Intervalo do Eat", 50, 1000, S.eatInterval, function(v)
         S.eatInterval = v
+        SaveConfig()
     end, { step = 10, suffix = " ms" })
     Z.Info("O Eat só dispara se você TIVER um chunk na mão.")
 
     Z.Sep("💰  AUTO SELL")
     FeatureToggle("sellTimer", "Auto Sell (Timer)", "Vende em intervalos fixos")
-    Z.Slider("Vender a cada", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v end, { step = 500, suffix = " ms" })
+    Z.Slider("Vender a cada", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v; SaveConfig() end, { step = 500, suffix = " ms" })
     FeatureToggle("smartSell", "Smart Sell (com chunk)", "Vende quando você está com chunk na mão e o tamanho parou de crescer")
-    Z.Slider("Considerar parado após", 2, 20, S.smartSellThreshold, function(v) S.smartSellThreshold = v end, { suffix = " s" })
+    Z.Slider("Considerar parado após", 2, 20, S.smartSellThreshold, function(v) S.smartSellThreshold = v; SaveConfig() end, { suffix = " s" })
     Z.Toggle("SkipOnSmartSell", S.skipOnSmartSell, function(v)
         S.skipOnSmartSell = v
+        SaveConfig()
     end, "Pula o mapa assim que o Smart Sell vender")
 
     Z.Sep("🗑️  AUTO THROW")
     FeatureToggle("throw", "Auto Throw", "Joga fora o que está na mão")
-    Z.Slider("Intervalo", 100, 3000, S.throwInterval, function(v) S.throwInterval = v end, { step = 50, suffix = " ms" })
+    Z.Slider("Intervalo", 100, 3000, S.throwInterval, function(v) S.throwInterval = v; SaveConfig() end, { step = 50, suffix = " ms" })
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1027,9 +1064,9 @@ end
 local function LoadWalk()
     Z.Sep("🚶  AUTO WALK")
     FeatureToggle("walk", "Auto Walk", "Anda de verdade com MoveTo contínuo + anti-travamento")
-    Z.Slider("WalkSpeed no walk", 16, 150, S.walkSpeed, function(v) S.walkSpeed = v end, { step = 2, suffix = " studs/s" })
-    Z.Slider("Raio de caminhada", 20, 150, S.walkRadius, function(v) S.walkRadius = v end, { step = 5, suffix = " studs" })
-    Z.Slider("Pausa entre destinos", 0, 3000, S.walkInterval, function(v) S.walkInterval = v end, { step = 50, suffix = " ms" })
+    Z.Slider("WalkSpeed no walk", 16, 150, S.walkSpeed, function(v) S.walkSpeed = v; SaveConfig() end, { step = 2, suffix = " studs/s" })
+    Z.Slider("Raio de caminhada", 20, 150, S.walkRadius, function(v) S.walkRadius = v; SaveConfig() end, { step = 5, suffix = " studs" })
+    Z.Slider("Pausa entre destinos", 0, 3000, S.walkInterval, function(v) S.walkInterval = v; SaveConfig() end, { step = 50, suffix = " ms" })
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1040,6 +1077,7 @@ local function LoadRewards()
     FeatureToggle("rewards", "Auto Redeem Rewards", "Resgata as rewards por tempo assim que ficam prontas")
     Z.Toggle("Incluir giro do grupo (Spin)", S.rewardSpin, function(v)
         S.rewardSpin = v
+        SaveConfig()
     end, "Só funciona se você estiver no grupo do jogo")
 end
 
@@ -1064,22 +1102,24 @@ local function LoadMap()
     Z.Sep("⏸️  AUTO PAUSE APÓS SKIP")
     Z.Toggle("Auto Pause após Skip", S.autoPauseAfterSkip, function(v)
         S.autoPauseAfterSkip = v
+        SaveConfig()
     end, "Pausa o mapa automaticamente alguns segundos depois de pular")
     Z.Slider("Delay do pause", 1, 30, S.autoPauseDelay, function(v)
         S.autoPauseDelay = v
+        SaveConfig()
     end, { suffix = " s" })
 
     Z.Sep("⏭️  SKIP POR TEMPO")
     UI.skipTimer = Z.Toggle("Skip Map (Tempo)", Features.skipTimer.running, function(v) SetFeature("skipTimer", v, true) end, "Pula o mapa a cada X segundos")
-    Z.Toggle("Ativar Skip por tempo", S.skipTimerEnabled, function(v) S.skipTimerEnabled = v end,
+    Z.Toggle("Ativar Skip por tempo", S.skipTimerEnabled, function(v) S.skipTimerEnabled = v; SaveConfig() end,
         "Precisa estar ligado para o Skip por tempo funcionar.")
-    Z.Slider("Pular a cada", 5, 900, S.skipInterval, function(v) S.skipInterval = v end, { step = 5, suffix = " s" })
+    Z.Slider("Pular a cada", 5, 900, S.skipInterval, function(v) S.skipInterval = v; SaveConfig() end, { step = 5, suffix = " s" })
 
     Z.Sep("⏭️  SKIP SEM CHUNK")
     UI.skipStuck = Z.Toggle("Skip Map (Sem Chunk)", Features.skipStuck.running, function(v) SetFeature("skipStuck", v, true) end, "Pula se tentar pegar e não conseguir por X s")
-    Z.Toggle("Ativar Skip sem chunk", S.skipStuckEnabled, function(v) S.skipStuckEnabled = v end,
+    Z.Toggle("Ativar Skip sem chunk", S.skipStuckEnabled, function(v) S.skipStuckEnabled = v; SaveConfig() end,
         "Precisa estar ligado para o Skip sem chunk funcionar.")
-    Z.Slider("Tempo sem pegar chunk", 3, 120, S.skipStuckTime, function(v) S.skipStuckTime = v end, { suffix = " s" })
+    Z.Slider("Tempo sem pegar chunk", 3, 120, S.skipStuckTime, function(v) S.skipStuckTime = v; SaveConfig() end, { suffix = " s" })
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1092,51 +1132,64 @@ local function LoadUnstuck()
     Z.Toggle("Ativar skip por Size parado", S.sizeStuckSkipEnabled, function(v)
         S.sizeStuckSkipEnabled = v
         if not v then ResetSizeStuck() end
+        SaveConfig()
     end, "Se desligado, a feature fica inativa mesmo que o toggle esteja ligado.")
     Z.Slider("Size parado por", 3, 60, S.sizeStuckThreshold, function(v)
         S.sizeStuckThreshold = v
+        SaveConfig()
     end, { step = 0.5, suffix = " s" })
     Z.Slider("Re-pausar após skip", 1, 30, S.sizeStuckRepauseDelay, function(v)
         S.sizeStuckRepauseDelay = v
+        SaveConfig()
     end, { step = 0.5, suffix = " s" })
 
     Z.Sep("📡  TELEPORTE APÓS FALHA DO GRAB")
     Z.Toggle("Teleportar após falha", S.grabTeleportEnabled, function(v)
         S.grabTeleportEnabled = v
+        SaveConfig()
     end, "Se não conseguir chunk após X segundos, teleporta para uma plataforma aleatória")
     Z.Slider("Teleportar após (sem chunk)", 1, 15, S.grabFailTeleportDelay, function(v)
         S.grabFailTeleportDelay = v
+        SaveConfig()
     end, { step = 0.5, suffix = " s" })
     Z.Toggle("Movimento aleatório após teleporte", S.grabWalkFallback, function(v)
         S.grabWalkFallback = v
+        SaveConfig()
     end, "Depois de teleportar por falha, anda aleatoriamente")
     Z.Slider("Duração do movimento", 0.5, 10, S.grabFailMoveDuration, function(v)
         S.grabFailMoveDuration = v
+        SaveConfig()
     end, { step = 0.5, suffix = " s" })
 
     Z.Sep("🧱  BEDROCK")
     Z.Toggle("Pular mapa se preso na Bedrock", S.grabBedrockSkipEnabled, function(v)
         S.grabBedrockSkipEnabled = v
+        SaveConfig()
     end, "Pula o mapa se ficar muito tempo em cima de Bedrock")
     Z.Slider("Tempo na Bedrock até pular", 1, 30, S.bedrockSkipTime, function(v)
         S.bedrockSkipTime = v
+        SaveConfig()
     end, { step = 0.5, suffix = " s" })
 
     Z.Sep("⏸️  AUTO-OFF DO GRAB")
     Z.Toggle("Desligar grab se parado e sem crescer", S.autoOffGrabEnabled, function(v)
         S.autoOffGrabEnabled = v
         if not v then ResetAutoOff() end
+        SaveConfig()
     end, "Desliga o Auto Grab quando o jogador fica parado e o tamanho não cresce")
     Z.Slider("Tempo sem crescer + parado", 1, 30, S.autoOffGrabThreshold, function(v)
         S.autoOffGrabThreshold = v
+        SaveConfig()
     end, { step = 0.5, suffix = " s" })
 
     Z.Sep("🧍  STUCK DO GRAB / WALK")
     Z.Slider("Grab: tempo para considerar travado", 0.5, 5, S.grabStuckTime, function(v)
         S.grabStuckTime = v
+        SaveConfig()
     end, { step = 0.1, suffix = " s" })
     Z.Slider("Walk: tempo para considerar travado", 1, 10, S.walkStuckTime, function(v)
         S.walkStuckTime = v
+        SaveConfig()
     end, { step = 0.5, suffix = " s" })
 end
 
@@ -1163,6 +1216,7 @@ local function LoadAutoUpgrades()
         else
             S.autoUpgradesSelectedName = nil
         end
+        SaveConfig()
     end, "Qual upgrade deve ser comprado automaticamente?")
 
     if S.autoUpgradesSelectedName then
@@ -1179,6 +1233,7 @@ local function LoadAutoUpgrades()
         "Tenta comprar o upgrade selecionado a cada 1s (verifica o preço e os Cubes).")
     Z.Slider("Intervalo do Auto Upgrade", 200, 5000, S.autoUpgradesInterval, function(v)
         S.autoUpgradesInterval = v
+        SaveConfig()
     end, { step = 100, suffix = " ms" })
 
     Z.Sep("💡  DICA")
@@ -1195,26 +1250,31 @@ local function LoadAutoRejoin()
     
     Z.Toggle("Ativar Auto Rejoin", S.autoRejoinEnabled, function(v) 
         S.autoRejoinEnabled = v 
+        SaveConfig()
     end, "Liga/desliga o Auto Rejoin.")
     
     Z.Slider("Limite de FPS (Mínimo)", 5, 60, S.autoRejoinFpsLimit, function(v) 
         S.autoRejoinFpsLimit = v 
+        SaveConfig()
     end, { suffix = " FPS" })
     Z.Info("Se o FPS ficar abaixo desse valor, o script começa a contar.")
 
     Z.Slider("Tempo de lag até rejoin", 10, 300, S.autoRejoinTime, function(v) 
         S.autoRejoinTime = v 
+        SaveConfig()
     end, { suffix = " s" })
     Z.Info("Quanto tempo o FPS precisa ficar baixo para ele reconectar.")
 
     Z.Sep("⏱️  TEMPO DE SESSÃO")
     Z.Slider("Tempo mínimo", 60, 7200, S.autoRejoinMinTime, function(v) 
         S.autoRejoinMinTime = v 
+        SaveConfig()
     end, { step = 60, suffix = " s" })
     Z.Info("Tempo mínimo que você precisa ficar no servidor antes do Auto Rejoin agir. Padrão: 1 minuto.")
     
     Z.Slider("Tempo máximo", 60, 7200, S.autoRejoinMaxTime, function(v) 
         S.autoRejoinMaxTime = v 
+        SaveConfig()
     end, { step = 60, suffix = " s" })
     Z.Info("Tempo máximo de farm na mesma sala. Ao atingir, ele reconecta forçado. Padrão: 2 horas.")
 end
@@ -1232,6 +1292,20 @@ Z.AddTab("Unstuck",     "📏", LoadUnstuck)
 Z.AddTab("Auto Upgrades","⚡", LoadAutoUpgrades)
 Z.AddTab("Auto Rejoin", "🔄", LoadAutoRejoin)
 Z.AddTab("Presets",     "📦", LoadPresets)
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- RESTAURA AS FUNÇÕES ATIVAS (AUTO-START)
+-- ═══════════════════════════════════════════════════════════════════════
+task.spawn(function()
+    task.wait(1) -- Espera a base e a interface carregarem
+    if S.ActiveFeatures then
+        for key, state in pairs(S.ActiveFeatures) do
+            if state and Features[key] then
+                SetFeature(key, true, true, true) -- Inicia silenciosamente
+            end
+        end
+    end
+end)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- ATALHOS DE TECLADO
@@ -1253,5 +1327,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v11.0 (Leve) carregado!", C.Success, 3)
-print("⚡ ETW Module v11.0 - Edição Leve iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v11.1 (Leve + Save) carregado!", C.Success, 3)
+print("⚡ ETW Module v11.1 iniciado")
