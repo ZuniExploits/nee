@@ -92,7 +92,7 @@ Def("autoUpgradesSelectedName", nil)
 -- Auto Rejoin (Lag)
 Def("autoRejoinEnabled", false)
 Def("autoRejoinFpsLimit", 20)
-Def("autoRejoinTime", 60)
+Def("autoRejoinTime", 10)
 
 -- Auto Rejoin (Tempo Fixo)
 Def("autoRejoinTimeInterval", 1800)
@@ -1069,30 +1069,21 @@ local function DoRejoin(reason)
     local ts = game:GetService("TeleportService")
 
     -- Detecta se é um servidor privado (VIP)
-    local isPrivateServer = game.PrivateServerId ~= "" and game.PrivateServerOwnerId ~= 0
+    local isVip = game.PrivateServerId ~= "" and game.PrivateServerOwnerId ~= 0
 
-    if isPrivateServer then
-        -- ✅ Servidor privado: usa VipServerId com TeleportAsync
-        local options = Instance.new("TeleportOptions")
-        options.VipServerId = game.PrivateServerId
-
-        local ok, err = pcall(function()
-            ts:TeleportAsync(game.PlaceId, {Player}, options)
+    if isVip then
+        -- ⚠️ Cliente NÃO PODE usar TeleportAsync com VipServerId.
+        -- O TeleportToPlaceInstance causa erro 773 em VIP.
+        -- Única opção client-side: Teleport normal (vai para um servidor público).
+        Z.Notify("Auto Rejoin", "Servidor VIP detectado. Rejoin no mesmo servidor não é possível pelo cliente. Indo para um servidor público...", C.Warning, 4)
+        pcall(function()
+            ts:Teleport(game.PlaceId, Player)
         end)
-
-        if not ok then
-            warn("[ETW Rejoin] Falha ao rejoin no servidor privado:", err)
-            -- Fallback: tenta Teleport normal (pode cair em outro servidor)
-            pcall(function()
-                ts:Teleport(game.PlaceId, Player)
-            end)
-        end
     else
-        -- Servidor comum: tenta rejoin no mesmo JobId
+        -- Servidor público: tenta rejoin no mesmo JobId
         local ok, err = pcall(function()
             ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, Player)
         end)
-
         if not ok then
             warn("[ETW Rejoin] TeleportToPlaceInstance falhou:", err)
             pcall(function()
