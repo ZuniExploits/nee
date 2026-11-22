@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v9.5                                        ║
--- ║  Grab + Teleporte após 3s sem chunk • Skip se Size parar 10s       ║
+-- ║  ZUNI HUB - ETW MODULE v10.0                                       ║
+-- ║  Abas por categoria • 2 presets                                    ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -33,36 +33,55 @@ local GROUP_ID     = 10587104
 local SKIP_MAPTIME = 0
 
 local function Def(k, v) if S[k] == nil then S[k] = v end end
+
+-- Grab
+Def("grabTeleportEnabled", true)
+Def("grabFailTeleportDelay", 3.0)
+Def("grabFailCooldown", 3.0)
+Def("grabWalkFallback", true)
+Def("grabFailMoveDuration", 3.0)
+Def("grabWalkWait", 1.5)
+Def("grabStuckTime", 1.5)
+Def("grabBedrockSkipEnabled", true)
+Def("bedrockSkipTime", 4.0)
+
+-- Auto-off
+Def("autoOffGrabEnabled", true)
+Def("autoOffGrabThreshold", 5.0)
+
+-- Eat / Throw / Sell
 Def("eatInterval", 50)
 Def("throwInterval", 500)
 Def("sellTimerInterval", 12000)
 Def("smartSellThreshold", 5)
+Def("skipOnSmartSell", false)
+
+-- Walk
 Def("walkInterval", 300)
 Def("walkRadius", 40)
 Def("walkSpeed", 30)
+Def("walkStuckTime", 2.0)
+
+-- Rewards
 Def("rewardSpin", true)
+
+-- Skip
+Def("skipTimerEnabled", false)
 Def("skipInterval", 60)
+Def("skipStuckEnabled", false)
 Def("skipStuckTime", 15)
+
+-- Size stuck
+Def("sizeStuckSkipEnabled", true)
+Def("sizeStuckThreshold", 10.0)
+Def("sizeStuckRepauseDelay", 5.0)
+
+-- Skip/pause geral
 Def("autoPauseAfterSkip", true)
 Def("autoPauseDelay", 5)
-Def("grabWalkFallback", true)
-Def("grabWalkWait", 1.5)
-Def("grabStuckTime", 1.5)
-Def("walkStuckTime", 2.0)
-Def("grabFailMoveDuration", 3.0)
-Def("grabFailCooldown", 3.0)
-Def("bedrockSkipTime", 4.0)
-Def("skipOnSmartSell", false)
-Def("autoOffGrabThreshold", 5.0)
-Def("autoOffGrabEnabled", true)
-
--- NOVOS
-Def("grabFailTeleportDelay", 3.0)   -- segundos sem chunk após tentar → teleporta
-Def("sizeStuckThreshold", 10.0)     -- segundos com Size parado → unpause/skip/pause
-Def("sizeStuckSkipEnabled", true)   -- liga/desliga o skip por Size parado
 
 -- ═══════════════════════════════════════════════════════════════════════
--- HELPERS DO JOGO
+-- HELPERS
 -- ═══════════════════════════════════════════════════════════════════════
 local function GetHRP() local c = Player.Character return c and c:FindFirstChild("HumanoidRootPart") end
 local function GetHum() local c = Player.Character return c and c:FindFirstChildOfClass("Humanoid") end
@@ -156,7 +175,7 @@ local function TeleportToPlatform()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- SISTEMA DE FEATURES
+-- FEATURES
 -- ═══════════════════════════════════════════════════════════════════════
 local Features = {}
 
@@ -175,8 +194,7 @@ local function RunLoop(ft)
         while ft.running and ft.gen == my and Z.Alive do
             local ok, res = pcall(ft.body)
             local wait = 0.05
-            if ok then
-                wait = tonumber(res) or wait
+            if ok then wait = tonumber(res) or wait
             else
                 warn("[ETW] " .. ft.label .. ": " .. tostring(res))
                 wait = 1
@@ -216,7 +234,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 -- MAPA
 -- ═══════════════════════════════════════════════════════════════════════
-local grabState = { failSince = nil, lastGrabAt = 0, lastPos = nil, stuckSince = nil }
+local grabState = { failSince = nil, lastPos = nil, stuckSince = nil }
 local lastSkip = 0
 local pauseToken = 0
 
@@ -245,8 +263,7 @@ local function SkipMap(reason)
         task.delay(math.max(0.5, S.autoPauseDelay), function()
             if my ~= pauseToken then return end
             if not Z.Alive then return end
-            local ok = SetMapPaused(true)
-            if ok then
+            if SetMapPaused(true) then
                 Z.Notify("Auto Pause", "Mapa pausado após " .. S.autoPauseDelay .. "s do skip.", C.Warning, 2)
             end
         end)
@@ -254,54 +271,44 @@ local function SkipMap(reason)
     return true
 end
 
--- Unpause → Skip → Pause (usado pelo size-stuck)
 local function UnpauseSkipPause(reason)
     local ev = GetEvent("SetServerSettings")
     if not ev then return false end
-
-    -- 1) unpause
     pcall(function() ev:FireServer({ Paused = false }) end)
     task.wait(0.25)
-
-    -- 2) skip
     pcall(function() ev:FireServer({ MapTime = SKIP_MAPTIME }) end)
     lastSkip = tick()
     grabState.failSince = nil
     grabState.stuckSince = nil
     Z.Notify("Size Stuck", reason or "Size parado. Mapa pulado.", C.Accent, 2.5)
-
-    -- 3) pause novamente
-    task.wait(0.25)
-    local ok = SetMapPaused(true)
-    if ok then
-        Z.Notify("Size Stuck", "Mapa pausado novamente.", C.Warning, 2)
-    end
+    local delay = math.max(0.5, S.sizeStuckRepauseDelay or 5.0)
+    pauseToken += 1
+    local my = pauseToken
+    task.delay(delay, function()
+        if my ~= pauseToken then return end
+        if not Z.Alive then return end
+        if SetMapPaused(true) then
+            Z.Notify("Size Stuck", string.format("Mapa re-pausado %.0fs após o skip.", delay), C.Warning, 2)
+        end
+    end)
     return true
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO-OFF DO GRAB (HRP ancorado + sem crescer + parado)
+-- AUTO-OFF DO GRAB
 -- ═══════════════════════════════════════════════════════════════════════
-local autoOff = {
-    lastSize = nil, sameSizeSince = nil,
-    lastPos = nil, stuckSince = nil,
-    watching = false, offSince = 0,
-}
+local autoOff = { lastSize = nil, sameSizeSince = nil, lastPos = nil, stuckSince = nil, watching = false }
 
 local function ResetAutoOff()
-    autoOff.lastSize = nil
-    autoOff.sameSizeSince = nil
-    autoOff.lastPos = nil
-    autoOff.stuckSince = nil
+    autoOff.lastSize = nil; autoOff.sameSizeSince = nil
+    autoOff.lastPos = nil; autoOff.stuckSince = nil
     autoOff.watching = false
-    autoOff.offSince = 0
 end
 
 task.spawn(function()
     task.wait(1)
     local okS, RunService = pcall(function() return game:GetService("RunService") end)
     if not okS or not RunService then return end
-
     local conn = RunService.Heartbeat:Connect(function()
         pcall(function()
             if not Z.Alive then return end
@@ -310,49 +317,38 @@ task.spawn(function()
                 return
             end
             if Features.grab and Features.grab.running then
-                autoOff.offSince = 0
                 local hrp = GetHRP()
                 local pos = hrp and hrp.Position or nil
                 local sz = GetSize()
                 local now = tick()
-
                 if sz ~= nil then
                     if autoOff.lastSize == nil then
-                        autoOff.lastSize = sz
-                        autoOff.sameSizeSince = now
+                        autoOff.lastSize = sz; autoOff.sameSizeSince = now
                     elseif sz ~= autoOff.lastSize then
-                        autoOff.lastSize = sz
-                        autoOff.sameSizeSince = now
+                        autoOff.lastSize = sz; autoOff.sameSizeSince = now
                     end
                 end
                 if pos and autoOff.lastPos then
-                    local moved = (pos - autoOff.lastPos).Magnitude
-                    if moved < 0.5 then
+                    if (pos - autoOff.lastPos).Magnitude < 0.5 then
                         if not autoOff.stuckSince then autoOff.stuckSince = now end
-                    else
-                        autoOff.stuckSince = nil
-                    end
+                    else autoOff.stuckSince = nil end
                 end
                 autoOff.lastPos = pos
-
                 local sizeStuck = autoOff.sameSizeSince and (now - autoOff.sameSizeSince >= S.autoOffGrabThreshold)
                 local posStuck  = autoOff.stuckSince and (now - autoOff.stuckSince >= S.autoOffGrabThreshold)
-
                 if sizeStuck and posStuck and not autoOff.watching then
                     autoOff.watching = true
-                    autoOff.offSince = now
                     SetFeature("grab", false, false)
-                    Z.Notify("Auto Grab", "Desligado: sem crescer e parado. Aguardando HRP desancorar.", C.Warning, 4)
+                    Z.Notify("Auto Grab", "Desligado: sem crescer e parado.", C.Warning, 4)
                 end
                 return
             end
             if autoOff.watching then
                 local hrp = GetHRP()
                 if hrp and not hrp.Anchored then
-                    autoOff.watching = false
-                    ResetAutoOff()
+                    autoOff.watching = false; ResetAutoOff()
                     SetFeature("grab", true, false)
-                    Z.Notify("Auto Grab", "HRP desancorado. Auto Grab religado.", C.Success, 3)
+                    Z.Notify("Auto Grab", "HRP desancorado. Religado.", C.Success, 3)
                 end
             end
         end)
@@ -361,7 +357,7 @@ task.spawn(function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- GRAB (SÓ UMA VEZ quando não tiver chunk; após 3s sem chunk → TELEPORTA)
+-- GRAB
 -- ═══════════════════════════════════════════════════════════════════════
 local grabFallback = { walking = false, wasWalkOn = false, moveUntil = 0 }
 local grabCooldown = { until_ = 0 }
@@ -379,50 +375,35 @@ end
 local function StopTempWalk()
     if not grabFallback.walking then return end
     grabFallback.walking = false
-    if not grabFallback.wasWalkOn then
-        SetFeature("walk", false, true)
-    end
+    if not grabFallback.wasWalkOn then SetFeature("walk", false, true) end
 end
 
 local function ResetGrab()
-    grabState.failSince = nil
-    grabState.stuckSince = nil
-    grabState.lastPos = nil
-    bedrockState.since = nil
-    grabCooldown.until_ = 0
-    grabTried = false
-    grabSucceeded = false
+    grabState.failSince = nil; grabState.stuckSince = nil; grabState.lastPos = nil
+    bedrockState.since = nil; grabCooldown.until_ = 0
+    grabTried = false; grabSucceeded = false
     StopTempWalk()
 end
 
 NewFeature("grab", "Auto Grab", function()
     if HasChunk() then
-        grabSucceeded = true
-        grabTried = false
-        grabState.failSince = nil
-        grabState.stuckSince = nil
+        grabSucceeded = true; grabTried = false
+        grabState.failSince = nil; grabState.stuckSince = nil
         grabCooldown.until_ = 0
-        if grabFallback.walking and tick() >= grabFallback.moveUntil then
-            StopTempWalk()
-        end
+        if grabFallback.walking and tick() >= grabFallback.moveUntil then StopTempWalk() end
         return 0.05
     end
-
-    if grabTried then
-        return 0.05
-    end
+    if grabTried then return 0.05 end
 
     local hrp = GetHRP()
     local pos = hrp and hrp.Position or nil
     local now = tick()
 
-    -- Bedrock
-    if IsOnBedrock() then
+    if S.grabBedrockSkipEnabled and IsOnBedrock() then
         if not bedrockState.since then bedrockState.since = now end
         if now - bedrockState.since >= S.bedrockSkipTime then
             SkipMap("Mapa pulado (preso na Bedrock).")
-            bedrockState.since = nil
-            grabTried = false
+            bedrockState.since = nil; grabTried = false
         else
             if not (Features.walk and Features.walk.running) then
                 StartTempWalk()
@@ -437,111 +418,90 @@ NewFeature("grab", "Auto Grab", function()
     end
     bedrockState.since = nil
 
-    if now < grabCooldown.until_ then
-        return 0.05
-    end
+    if now < grabCooldown.until_ then return 0.05 end
 
-    grabTried = true
-    grabSucceeded = false
+    grabTried = true; grabSucceeded = false
     task.spawn(FireEvent, "Grab")
 
-    -- Após S.grabFailTeleportDelay (padrão 3s): se ainda não tem chunk → TELEPORTA
     task.delay(math.max(0.5, S.grabFailTeleportDelay), function()
         if not Features.grab or not Features.grab.running then return end
-        if grabSucceeded or HasChunk() then
-            grabTried = false
-            return
-        end
-        -- Continua sem chunk → teleporta para plataforma aleatória
+        if grabSucceeded or HasChunk() then grabTried = false; return end
         grabTried = false
         grabCooldown.until_ = tick() + S.grabFailCooldown
-        local ok = TeleportToPlatform()
-        Z.Notify("Auto Grab",
-            ok and string.format("Sem chunk após %.1fs. Teleportado.", S.grabFailTeleportDelay)
-               or string.format("Sem chunk após %.1fs. Não achei plataforma.", S.grabFailTeleportDelay),
-            ok and C.Accent or C.Warning, 2)
-        if S.grabWalkFallback and not grabFallback.walking then
-            StartTempWalk()
-            grabFallback.moveUntil = tick() + S.grabFailMoveDuration
+
+        if S.grabTeleportEnabled then
+            local ok = TeleportToPlatform()
+            Z.Notify("Auto Grab",
+                ok and string.format("Sem chunk após %.1fs. Teleportado.", S.grabFailTeleportDelay)
+                   or string.format("Sem chunk após %.1fs. Sem plataforma.", S.grabFailTeleportDelay),
+                ok and C.Accent or C.Warning, 2)
+            if S.grabWalkFallback and not grabFallback.walking then
+                StartTempWalk()
+                grabFallback.moveUntil = tick() + S.grabFailMoveDuration
+            end
+        else
+            Z.Notify("Auto Grab", "Sem chunk após teleporte desativado.", C.Warning, 2)
         end
     end)
 
     if grabState.stuckSince and (now - grabState.stuckSince) >= S.grabStuckTime then
         if pos then
             local target = RandomWalkablePos(pos, S.walkRadius)
-            if target and hrp then
-                pcall(function() hrp.CFrame = CFrame.new(target) end)
-            end
+            if target and hrp then pcall(function() hrp.CFrame = CFrame.new(target) end) end
         end
-        grabState.stuckSince = nil
-        grabState.lastPos = nil
+        grabState.stuckSince = nil; grabState.lastPos = nil
     end
 
     return 0.05
 end, { onStart = ResetGrab, onStop = ResetGrab })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- SIZE STUCK → Unpause → Skip → Pause
---   Se o Size não mudar por S.sizeStuckThreshold segundos → dispara
+-- SIZE STUCK
 -- ═══════════════════════════════════════════════════════════════════════
 local sizeStuck = { lastSize = nil, since = nil, busy = false }
 
 local function ResetSizeStuck()
-    sizeStuck.lastSize = nil
-    sizeStuck.since = nil
-    sizeStuck.busy = false
+    sizeStuck.lastSize = nil; sizeStuck.since = nil; sizeStuck.busy = false
 end
 
 NewFeature("sizeStuckSkip", "Skip se Size parar", function()
     if not S.sizeStuckSkipEnabled then return 1 end
-
     local sz = GetSize()
     if sz == nil then
-        sizeStuck.lastSize = nil
-        sizeStuck.since = nil
+        sizeStuck.lastSize = nil; sizeStuck.since = nil
         return 0.5
     end
-
     local now = tick()
-
     if sizeStuck.lastSize == nil then
-        sizeStuck.lastSize = sz
-        sizeStuck.since = now
+        sizeStuck.lastSize = sz; sizeStuck.since = now
         return 0.5
     end
-
     if sz ~= sizeStuck.lastSize then
-        sizeStuck.lastSize = sz
-        sizeStuck.since = now
+        sizeStuck.lastSize = sz; sizeStuck.since = now
         return 0.5
     end
-
-    -- size igual desde sizeStuck.since
     if not sizeStuck.busy and (now - sizeStuck.since) >= S.sizeStuckThreshold then
         sizeStuck.busy = true
         Z.Notify("Size Stuck",
-            string.format("Size parado há %ds. Unpause → Skip → Pause.", math.floor(S.sizeStuckThreshold)),
+            string.format("Size parado há %ds. Unpause → Skip → (re-pause em %.0fs).",
+                math.floor(S.sizeStuckThreshold), S.sizeStuckRepauseDelay),
             C.Warning, 3)
         task.spawn(function()
             UnpauseSkipPause(string.format("Size parado há %ds.", math.floor(S.sizeStuckThreshold)))
             task.wait(0.5)
-            sizeStuck.lastSize = GetSize()
-            sizeStuck.since = tick()
+            sizeStuck.lastSize = GetSize(); sizeStuck.since = tick()
             sizeStuck.busy = false
         end)
     end
-
     return 0.5
 end, { onStart = ResetSizeStuck, onStop = ResetSizeStuck })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- EAT
+-- EAT / THROW / SELL
 -- ═══════════════════════════════════════════════════════════════════════
 NewFeature("eat", "Auto Eat", function()
-    if HasChunk() then
-        FireEvent("Eat")
-    end
-    return 0.05
+    if HasChunk() then FireEvent("Eat") end
+    return S.eatInterval / 1000
 end)
 
 NewFeature("throw", "Auto Throw", function()
@@ -554,11 +514,9 @@ NewFeature("sellTimer", "Auto Sell (Timer)", function()
     return S.sellTimerInterval / 1000
 end, { exclusive = "smartSell" })
 
--- Smart Sell + SkipOnSmartSell
 local smart = { last = -1, stuck = 0 }
 NewFeature("smartSell", "Smart Sell (com chunk)", function()
-    local hasChunk = HasChunk()
-    if not hasChunk then
+    if not HasChunk() then
         smart.last, smart.stuck = -1, 0
         return 1
     end
@@ -572,93 +530,67 @@ NewFeature("smartSell", "Smart Sell (com chunk)", function()
         FireEvent("Sell")
         Z.Notify("Smart Sell", "Vendendo (chunk parado)...", C.Success, 2)
         smart.stuck = 0
-        if S.skipOnSmartSell then
-            SkipMap("Mapa pulado (Smart Sell).")
-        end
+        if S.skipOnSmartSell then SkipMap("Mapa pulado (Smart Sell).") end
         return 2
     end
     return 1
-end, {
-    exclusive = "sellTimer",
-    onStart = function() smart.last, smart.stuck = -1, 0 end,
-})
+end, { exclusive = "sellTimer", onStart = function() smart.last, smart.stuck = -1, 0 end })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO WALK
+-- WALK
 -- ═══════════════════════════════════════════════════════════════════════
 local walkState = { target = nil, lastPos = nil, stuckSince = nil, lastMoveAt = 0 }
 
 local function StopMoving()
     local hum, hrp = GetHum(), GetHRP()
     if hum and hrp then hum:MoveTo(hrp.Position) end
-    walkState.target = nil
-    walkState.stuckSince = nil
+    walkState.target = nil; walkState.stuckSince = nil
 end
 
 local function ApplyWalkSpeed()
     local hum = GetHum()
     if hum then hum.WalkSpeed = S.walkSpeed end
-    walkState.target = nil
-    walkState.lastPos = nil
-    walkState.stuckSince = nil
+    walkState.target = nil; walkState.lastPos = nil; walkState.stuckSince = nil
 end
 
 NewFeature("walk", "Auto Walk", function()
     local hrp, hum = GetHRP(), GetHum()
     if not (hrp and hum and hum.Health > 0) then return 0.3 end
     if hrp.Anchored then return 0.3 end
-
     if hum.WalkSpeed ~= S.walkSpeed then hum.WalkSpeed = S.walkSpeed end
-
     local now = tick()
     local pos = hrp.Position
-
     if walkState.lastPos then
-        local moved = (pos - walkState.lastPos).Magnitude
-        if moved < 0.5 then
+        if (pos - walkState.lastPos).Magnitude < 0.5 then
             if not walkState.stuckSince then walkState.stuckSince = now end
-        else
-            walkState.stuckSince = nil
-        end
+        else walkState.stuckSince = nil end
     end
     walkState.lastPos = pos
-
     if walkState.stuckSince and (now - walkState.stuckSince) >= S.walkStuckTime then
         hum.Jump = true
-        walkState.target = nil
-        walkState.stuckSince = nil
-        walkState.lastMoveAt = 0
+        walkState.target = nil; walkState.stuckSince = nil; walkState.lastMoveAt = 0
         return 0.2
     end
-
     if not walkState.target then
         walkState.target = RandomWalkablePos(pos, S.walkRadius)
         if not walkState.target then return 0.5 end
         walkState.lastMoveAt = now
     end
-
     hum:MoveTo(walkState.target)
-
     local flat = Vector3.new(walkState.target.X - pos.X, 0, walkState.target.Z - pos.Z).Magnitude
     if flat < 5 then
-        walkState.target = nil
-        walkState.stuckSince = nil
-        walkState.lastMoveAt = 0
+        walkState.target = nil; walkState.stuckSince = nil; walkState.lastMoveAt = 0
         return S.walkInterval / 1000
     end
-
     if now - walkState.lastMoveAt > 6 then
-        walkState.target = nil
-        walkState.stuckSince = nil
-        walkState.lastMoveAt = 0
+        walkState.target = nil; walkState.stuckSince = nil; walkState.lastMoveAt = 0
         return 0.2
     end
-
     return 0.25
 end, { onStart = ApplyWalkSpeed, onStop = StopMoving })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO REWARDS
+-- REWARDS
 -- ═══════════════════════════════════════════════════════════════════════
 local rewardSent, lastSpin = {}, 0
 local RewardInfo = nil
@@ -720,10 +652,11 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- SKIP MAP
+-- SKIP TIMER / STUCK
 -- ═══════════════════════════════════════════════════════════════════════
 local skipNext = 0
 NewFeature("skipTimer", "Skip Map (Tempo)", function()
+    if not S.skipTimerEnabled then return 1 end
     local now = tick()
     if skipNext - now > S.skipInterval then skipNext = now + S.skipInterval end
     if now >= skipNext then
@@ -734,6 +667,7 @@ NewFeature("skipTimer", "Skip Map (Tempo)", function()
 end, { onStart = function() skipNext = tick() + S.skipInterval end })
 
 NewFeature("skipStuck", "Skip Map (Sem Chunk)", function()
+    if not S.skipStuckEnabled then return 1 end
     local fs = grabState.failSince
     if fs and tick() - fs >= S.skipStuckTime and tick() - lastSkip > 3 then
         SkipMap("Mapa pulado (sem chunk por " .. S.skipStuckTime .. "s).")
@@ -746,39 +680,58 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════
 local function ApplyPreset(name)
     for key in pairs(Features) do SetFeature(key, false, true) end
-    grabState.failSince = nil
-    grabState.stuckSince = nil
-    grabState.lastPos = nil
-    grabCooldown.until_ = 0
-    grabTried = false
-    grabSucceeded = false
-    ResetAutoOff()
-    ResetSizeStuck()
-    StopTempWalk()
+    grabState.failSince = nil; grabState.stuckSince = nil; grabState.lastPos = nil
+    grabCooldown.until_ = 0; grabTried = false; grabSucceeded = false
+    ResetAutoOff(); ResetSizeStuck(); StopTempWalk()
 
     if name == "normal" then
         SetFeature("grab", true, true)
         SetFeature("eat", true, true)
         SetFeature("smartSell", true, true)
         SetFeature("rewards", true, true)
-        SetFeature("sizeStuckSkip", true, true)  -- ⬅️ skip por size parado
-        SetFeature("skipStuck", true, true)
+        SetFeature("sizeStuckSkip", true, true)
         SetFeature("walk", true, true)
         S.skipOnSmartSell = false
-        S.walkSpeed = 30
+        S.grabTeleportEnabled = true
         S.grabWalkFallback = true
+        S.grabBedrockSkipEnabled = true
+        S.autoOffGrabEnabled = true
+        S.sizeStuckSkipEnabled = true
+        S.skipTimerEnabled = false
+        S.skipStuckEnabled = false
+        S.autoPauseAfterSkip = true
+        S.walkSpeed = 30
+        S.walkRadius = 40
+        S.grabFailTeleportDelay = 3.0
+        S.grabFailCooldown = 3.0
+        S.sizeStuckThreshold = 10.0
+        S.sizeStuckRepauseDelay = 5.0
+        S.autoPauseDelay = 5
         Z.Notify("Preset", "Normal Farm ativado.", C.Success, 3)
+
     elseif name == "static" then
         SetFeature("grab", true, true)
         SetFeature("eat", true, true)
         SetFeature("smartSell", true, true)
         SetFeature("rewards", true, true)
-        SetFeature("sizeStuckSkip", true, true)  -- ⬅️ skip por size parado
-        SetFeature("skipStuck", true, true)
+        SetFeature("sizeStuckSkip", true, true)
         SetFeature("walk", false, true)
         S.skipOnSmartSell = true
-        S.walkSpeed = 16
+        S.grabTeleportEnabled = true
         S.grabWalkFallback = false
+        S.grabBedrockSkipEnabled = true
+        S.autoOffGrabEnabled = true
+        S.sizeStuckSkipEnabled = true
+        S.skipTimerEnabled = false
+        S.skipStuckEnabled = false
+        S.autoPauseAfterSkip = true
+        S.walkSpeed = 16
+        S.walkRadius = 40
+        S.grabFailTeleportDelay = 3.0
+        S.grabFailCooldown = 3.0
+        S.sizeStuckThreshold = 10.0
+        S.sizeStuckRepauseDelay = 5.0
+        S.autoPauseDelay = 5
         Z.Notify("Preset", "Farm #1 (parado + SkipOnSmartSell) ativado.", C.Success, 3)
     end
 
@@ -793,16 +746,16 @@ end
 
 local function LoadPresets()
     Z.Sep("📦  PRESETS")
-    Z.Info("Aplica uma combinação pronta. Você pode ajustar depois na aba Main.")
+    Z.Info("Aplica uma combinação pronta. Você pode ajustar depois nas abas.")
     Z.Button("🌾  Normal Farm (andando)", C.Success, function() ApplyPreset("normal") end)
     Z.Button("🧱  Farm #1 (parado + SkipOnSmartSell)", C.Accent, function() ApplyPreset("static") end)
     Z.Sep("ℹ️  SOBRE")
-    Z.Info("Normal Farm: Grab + Eat + Smart Sell + Rewards + Skip por Size parado + Auto Walk.\n" ..
-           "Farm #1: o mesmo, mas sem Auto Walk e com SkipOnSmartSell (pula o mapa após cada Smart Sell).")
+    Z.Info("Normal Farm: Grab + Eat + Smart Sell + Rewards + Size-Stuck + Auto Walk + Teleporte após falha.\n" ..
+           "Farm #1: parado, com SkipOnSmartSell (pula o mapa após cada Smart Sell).")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA MAIN
+-- ABA: MAIN
 -- ═══════════════════════════════════════════════════════════════════════
 local function FeatureToggle(key, name, desc)
     UI[key] = Z.Toggle(name, Features[key].running, function(v) SetFeature(key, v, true) end, desc)
@@ -826,13 +779,12 @@ local function LoadMain()
     local stSize   = Z.Stat("Tamanho", "—")
     local stChunk  = Z.Stat("Chunk", "—")
     local stBed    = Z.Stat("Bedrock", "—")
-    local stFail   = Z.Stat("Sem conseguir pegar há", "—")
     local stCd     = Z.Stat("Cooldown do grab", "—")
     local stHrp    = Z.Stat("HRP ancorado", "—")
     local stMap    = Z.Stat("Mapa", "—")
     local stReward = Z.Stat("Próxima reward", "—")
     local stActive = Z.Stat("Funções ativas", "0")
-    local stSizeStuck = Z.Stat("Size parado há", "—")  -- ⬅️ NOVO
+    local stSizeStuck = Z.Stat("Size parado há", "—")
     Z.PageLoop(0.5, function()
         pcall(function()
             local sz = GetSize()
@@ -841,8 +793,6 @@ local function LoadMain()
             stChunk.Set(has and "Sim" or "Não", has and C.Success or C.TextDim)
             local bed = IsOnBedrock()
             stBed.Set(bed and "Sim" or "Não", bed and C.Warning or C.TextDim)
-            local fs = grabState.failSince
-            stFail.Set(fs and (math.floor(tick() - fs) .. " s") or "—", fs and C.Warning or C.TextDim)
             local cd = grabCooldown.until_ - tick()
             stCd.Set(cd > 0 and (string.format("%.1f s", cd)) or "—", cd > 0 and C.Warning or C.TextDim)
             local anch = IsHRPAnchored()
@@ -856,10 +806,8 @@ local function LoadMain()
             else stReward.Set(Fmt(nr)) end
             local n = CountActive()
             stActive.Set(tostring(n), n > 0 and C.Success or C.TextDim)
-
             if sizeStuck.since then
-                stSizeStuck.Set(string.format("%.1f s", tick() - sizeStuck.since),
-                    C.Warning)
+                stSizeStuck.Set(string.format("%.1f s", tick() - sizeStuck.since), C.Warning)
             else
                 stSizeStuck.Set("—", C.TextDim)
             end
@@ -868,7 +816,7 @@ local function LoadMain()
 
     Z.Sep("🎛️  CONTROLES RÁPIDOS")
     Z.Button("▶  Ativar farm completo (Grab + Eat + Smart Sell + Rewards + Size-Stuck)", C.Success, function()
-        for _, k in ipairs({ "grab", "eat", "smartSell", "rewards", "sizeStuckSkip", "skipStuck" }) do
+        for _, k in ipairs({ "grab", "eat", "smartSell", "rewards", "sizeStuckSkip" }) do
             SetFeature(k, true, true)
         end
         Z.Notify("ETW", "Farm completo ativado.", C.Success, 2)
@@ -876,12 +824,114 @@ local function LoadMain()
     Z.Button("⏭  Pular mapa agora", C.Accent, function() SkipMap("Mapa pulado.") end)
     Z.Button("⏹  Desligar tudo", C.Danger, function()
         for key in pairs(Features) do SetFeature(key, false, true) end
-        ResetAutoOff()
-        ResetSizeStuck()
+        ResetAutoOff(); ResetSizeStuck()
         Z.Notify("ETW", "Todas as funções desligadas.", C.TextDim, 2)
     end)
+end
 
-    Z.Sep("🗺️  MAPA")
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA: GRAB
+-- ═══════════════════════════════════════════════════════════════════════
+local function LoadGrab()
+    Z.Sep("🌾  AUTO GRAB")
+    FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk UMA vez. Só tenta de novo depois que perder o chunk atual.")
+    Z.Info("O Grab só dispara se você NÃO tiver chunk, e apenas UMA vez até conseguir ou falhar.")
+
+    Z.Slider("Cooldown após falha", 0.5, 15, S.grabFailCooldown, function(v)
+        S.grabFailCooldown = v
+    end, { step = 0.5, suffix = " s" })
+
+    Z.Sep("📡  TELEPORTE APÓS FALHA")
+    Z.Toggle("Teleportar após falha", S.grabTeleportEnabled, function(v)
+        S.grabTeleportEnabled = v
+    end, "Se não conseguir chunk após X segundos, teleporta para uma plataforma aleatória")
+    Z.Slider("Teleportar após (sem chunk)", 1, 15, S.grabFailTeleportDelay, function(v)
+        S.grabFailTeleportDelay = v
+    end, { step = 0.5, suffix = " s" })
+
+    Z.Toggle("Movimento aleatório após teleporte", S.grabWalkFallback, function(v)
+        S.grabWalkFallback = v
+    end, "Depois de teleportar por falha, anda aleatoriamente")
+    Z.Slider("Duração do movimento", 0.5, 10, S.grabFailMoveDuration, function(v)
+        S.grabFailMoveDuration = v
+    end, { step = 0.5, suffix = " s" })
+
+    Z.Sep("🧱  BEDROCK")
+    Z.Toggle("Pular mapa se preso na Bedrock", S.grabBedrockSkipEnabled, function(v)
+        S.grabBedrockSkipEnabled = v
+    end, "Pula o mapa se ficar muito tempo em cima de Bedrock")
+    Z.Slider("Tempo na Bedrock até pular", 1, 30, S.bedrockSkipTime, function(v)
+        S.bedrockSkipTime = v
+    end, { step = 0.5, suffix = " s" })
+
+    Z.Sep("⏸️  AUTO-OFF DO GRAB")
+    Z.Toggle("Desligar grab se parado e sem crescer", S.autoOffGrabEnabled, function(v)
+        S.autoOffGrabEnabled = v
+        if not v then ResetAutoOff() end
+    end, "Desliga o Auto Grab quando o jogador fica parado e o tamanho não cresce")
+    Z.Slider("Tempo sem crescer + parado", 1, 30, S.autoOffGrabThreshold, function(v)
+        S.autoOffGrabThreshold = v
+    end, { step = 0.5, suffix = " s" })
+
+    Z.Sep("🧍  STUCK")
+    Z.Slider("Tempo para considerar travado", 0.5, 5, S.grabStuckTime, function(v)
+        S.grabStuckTime = v
+    end, { step = 0.1, suffix = " s" })
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA: EAT / SELL / THROW
+-- ═══════════════════════════════════════════════════════════════════════
+local function LoadEatSell()
+    Z.Sep("🍽️  AUTO EAT")
+    FeatureToggle("eat", "Auto Eat", "Come automaticamente se tiver um chunk.")
+    Z.Slider("Intervalo do Eat", 50, 1000, S.eatInterval, function(v)
+        S.eatInterval = v
+    end, { step = 10, suffix = " ms" })
+    Z.Info("O Eat só dispara se você TIVER um chunk na mão.")
+
+    Z.Sep("💰  AUTO SELL")
+    FeatureToggle("sellTimer", "Auto Sell (Timer)", "Vende em intervalos fixos")
+    Z.Slider("Vender a cada", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v end, { step = 500, suffix = " ms" })
+    FeatureToggle("smartSell", "Smart Sell (com chunk)", "Vende quando você está com chunk na mão e o tamanho parou de crescer")
+    Z.Slider("Considerar parado após", 2, 20, S.smartSellThreshold, function(v) S.smartSellThreshold = v end, { suffix = " s" })
+    Z.Toggle("SkipOnSmartSell", S.skipOnSmartSell, function(v)
+        S.skipOnSmartSell = v
+    end, "Pula o mapa assim que o Smart Sell vender")
+
+    Z.Sep("🗑️  AUTO THROW")
+    FeatureToggle("throw", "Auto Throw", "Joga fora o que está na mão")
+    Z.Slider("Intervalo", 100, 3000, S.throwInterval, function(v) S.throwInterval = v end, { step = 50, suffix = " ms" })
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA: WALK
+-- ═══════════════════════════════════════════════════════════════════════
+local function LoadWalk()
+    Z.Sep("🚶  AUTO WALK")
+    FeatureToggle("walk", "Auto Walk", "Anda de verdade com MoveTo contínuo + anti-travamento")
+    Z.Slider("WalkSpeed no walk", 16, 150, S.walkSpeed, function(v) S.walkSpeed = v end, { step = 2, suffix = " studs/s" })
+    Z.Slider("Raio de caminhada", 20, 150, S.walkRadius, function(v) S.walkRadius = v end, { step = 5, suffix = " studs" })
+    Z.Slider("Pausa entre destinos", 0, 3000, S.walkInterval, function(v) S.walkInterval = v end, { step = 50, suffix = " ms" })
+    Z.Slider("Tempo para considerar travado no walk", 1, 10, S.walkStuckTime, function(v) S.walkStuckTime = v end, { step = 0.5, suffix = " s" })
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA: REWARDS
+-- ═══════════════════════════════════════════════════════════════════════
+local function LoadRewards()
+    Z.Sep("🎁  AUTO REDEEM REWARDS")
+    FeatureToggle("rewards", "Auto Redeem Rewards", "Resgata as rewards por tempo assim que ficam prontas")
+    Z.Toggle("Incluir giro do grupo (Spin)", S.rewardSpin, function(v)
+        S.rewardSpin = v
+    end, "Só funciona se você estiver no grupo do jogo")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA: MAP
+-- ═══════════════════════════════════════════════════════════════════════
+local function LoadMap()
+    Z.Sep("🗺️  CONTROLE DO MAPA")
     local ss = GetServerSettings()
     local paused = ss and ss:FindFirstChild("Paused")
     if paused then
@@ -895,6 +945,7 @@ local function LoadMain()
         Z.Info("⚠ ServerSettings.Paused não encontrado neste servidor.")
     end
 
+    Z.Sep("⏸️  AUTO PAUSE APÓS SKIP")
     Z.Toggle("Auto Pause após Skip", S.autoPauseAfterSkip, function(v)
         S.autoPauseAfterSkip = v
     end, "Pausa o mapa automaticamente alguns segundos depois de pular")
@@ -902,94 +953,62 @@ local function LoadMain()
         S.autoPauseDelay = v
     end, { suffix = " s" })
 
-    FeatureToggle("skipTimer", "Auto Skip Map (por tempo)", "Pula o mapa a cada X segundos")
+    Z.Sep("⏭️  SKIP POR TEMPO")
+    FeatureToggle("skipTimer", "Skip Map (Tempo)", "Pula o mapa a cada X segundos")
+    Z.Toggle("Ativar Skip por tempo", S.skipTimerEnabled, function(v) S.skipTimerEnabled = v end,
+        "Precisa estar ligado para o Skip por tempo funcionar.")
     Z.Slider("Pular a cada", 5, 900, S.skipInterval, function(v) S.skipInterval = v end, { step = 5, suffix = " s" })
 
-    FeatureToggle("skipStuck", "Auto Skip Map (sem chunk)", "Pula se tentar pegar e não conseguir por X s")
+    Z.Sep("⏭️  SKIP SEM CHUNK")
+    FeatureToggle("skipStuck", "Skip Map (Sem Chunk)", "Pula se tentar pegar e não conseguir por X s")
+    Z.Toggle("Ativar Skip sem chunk", S.skipStuckEnabled, function(v) S.skipStuckEnabled = v end,
+        "Precisa estar ligado para o Skip sem chunk funcionar.")
     Z.Slider("Tempo sem pegar chunk", 3, 120, S.skipStuckTime, function(v) S.skipStuckTime = v end, { suffix = " s" })
+end
 
-    Z.Sep("🌾  COLETA — AUTO GRAB")
-    FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk UMA vez. Após X segundos sem chunk, TELEPORTA.")
-    Z.Info("Se depois de tentar pegar o jogador ainda não tiver chunk, ele teleporta para uma plataforma aleatória.")
-
-    Z.Slider("Teleportar após (sem chunk)", 1, 15, S.grabFailTeleportDelay, function(v)
-        S.grabFailTeleportDelay = v
-    end, { step = 0.5, suffix = " s" })
-    Z.Info("Tempo até teleportar quando o Grab não conseguir chunk.")
-
-    Z.Slider("Cooldown após teleporte", 0.5, 15, S.grabFailCooldown, function(v)
-        S.grabFailCooldown = v
-    end, { step = 0.5, suffix = " s" })
-    Z.Info("Tempo que o script fica sem tentar pegar após o teleporte.")
-
-    Z.Toggle("Movimento aleatório após teleporte", S.grabWalkFallback, function(v)
-        S.grabWalkFallback = v
-    end, "Depois de teleportar por falha, anda aleatoriamente")
-    Z.Slider("Duração do movimento", 0.5, 10, S.grabFailMoveDuration, function(v)
-        S.grabFailMoveDuration = v
-    end, { step = 0.5, suffix = " s" })
-    Z.Slider("Tempo para considerar travado", 0.5, 5, S.grabStuckTime, function(v)
-        S.grabStuckTime = v
-    end, { step = 0.1, suffix = " s" })
-    Z.Slider("Tempo na Bedrock até pular", 1, 30, S.bedrockSkipTime, function(v)
-        S.bedrockSkipTime = v
-    end, { step = 0.5, suffix = " s" })
-
-    Z.Sep("📏  SIZE STUCK → SKIP")
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA: SIZE STUCK
+-- ═══════════════════════════════════════════════════════════════════════
+local function LoadSizeStuck()
+    Z.Sep("📏  SKIP SE SIZE PARAR")
     FeatureToggle("sizeStuckSkip", "Skip se Size parar",
-        "Se o Size não mudar por X segundos, unpause → skip → pause o mapa.")
+        "Se o Size não mudar por X segundos, unpause → skip → re-pause após Y segundos.")
+    Z.Toggle("Ativar skip por Size parado", S.sizeStuckSkipEnabled, function(v)
+        S.sizeStuckSkipEnabled = v
+        if not v then ResetSizeStuck() end
+    end, "Se desligado, a feature fica inativa mesmo que o toggle esteja ligado.")
     Z.Slider("Size parado por", 3, 60, S.sizeStuckThreshold, function(v)
         S.sizeStuckThreshold = v
     end, { step = 0.5, suffix = " s" })
-    Z.Info("Ao atingir o tempo, o mapa é despausado, pulado e pausado de novo. O timer reinicia.")
-
-    Z.Sep("⏸️  AUTO-OFF DO GRAB")
-    Z.Toggle("Desligar grab se parado e sem crescer", S.autoOffGrabEnabled, function(v)
-        S.autoOffGrabEnabled = v
-        if not v then ResetAutoOff() end
-    end, "Desliga o Auto Grab quando o jogador fica parado e o tamanho não cresce")
-    Z.Slider("Tempo sem crescer + parado", 1, 30, S.autoOffGrabThreshold, function(v)
-        S.autoOffGrabThreshold = v
+    Z.Slider("Re-pausar após skip", 1, 30, S.sizeStuckRepauseDelay, function(v)
+        S.sizeStuckRepauseDelay = v
     end, { step = 0.5, suffix = " s" })
-    Z.Info("Quando o Grab é desligado por esse motivo, ele só religa sozinho quando o HRP do jogador desancorar.")
+    Z.Info("Ao atingir o tempo sem mudar o Size: despausa, pula, e re-pausa após o delay configurado (padrão 5s).")
+end
 
-    Z.Sep("🍽️  COMER — AUTO EAT")
-    FeatureToggle("eat", "Auto Eat", "Come automaticamente se tiver um chunk.")
-    Z.Info("O Eat roda a cada 50ms, mas só dispara se você TIVER um chunk na mão.")
-
-    Z.Sep("🎁  REWARDS")
-    FeatureToggle("rewards", "Auto Redeem Rewards", "Resgata as rewards por tempo assim que ficam prontas")
-    Z.Toggle("Incluir giro do grupo (Spin)", S.rewardSpin, function(v) S.rewardSpin = v end, "Só funciona se você estiver no grupo do jogo")
-
-    Z.Sep("💰  VENDA — AUTO SELL")
-    FeatureToggle("sellTimer", "Auto Sell (Timer)", "Vende em intervalos fixos")
-    Z.Slider("Vender a cada", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v end, { step = 500, suffix = " ms" })
-    FeatureToggle("smartSell", "Smart Sell (com chunk)", "Vende quando você está com chunk na mão e o tamanho parou de crescer")
-    Z.Slider("Considerar parado após", 2, 20, S.smartSellThreshold, function(v) S.smartSellThreshold = v end, { suffix = " s" })
-    Z.Toggle("SkipOnSmartSell", S.skipOnSmartSell, function(v)
-        S.skipOnSmartSell = v
-    end, "Pula o mapa assim que o Smart Sell vender")
-
-    Z.Sep("🗑️  EXTRAS — AUTO THROW")
-    FeatureToggle("throw", "Auto Throw", "Joga fora o que está na mão")
-    Z.Slider("Intervalo", 100, 3000, S.throwInterval, function(v) S.throwInterval = v end, { step = 50, suffix = " ms" })
-
-    Z.Sep("🚶  MOVIMENTO — AUTO WALK")
-    FeatureToggle("walk", "Auto Walk", "Anda de verdade com MoveTo contínuo + anti-travamento")
-    Z.Slider("WalkSpeed no walk", 16, 150, S.walkSpeed, function(v) S.walkSpeed = v end, { step = 2, suffix = " studs/s" })
-    Z.Slider("Raio de caminhada", 20, 150, S.walkRadius, function(v) S.walkRadius = v end, { step = 5, suffix = " studs" })
-    Z.Slider("Pausa entre destinos", 0, 3000, S.walkInterval, function(v) S.walkInterval = v end, { step = 50, suffix = " ms" })
-    Z.Slider("Tempo para considerar travado no walk", 1, 10, S.walkStuckTime, function(v) S.walkStuckTime = v end, { step = 0.5, suffix = " s" })
-
-    Z.Sep("⌨️  ATALHOS")
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA: SHORTCUTS
+-- ═══════════════════════════════════════════════════════════════════════
+local function LoadShortcuts()
+    Z.Sep("⌨️  ATALHOS DE TECLADO")
     Z.Info(string.format(
         "%s = Auto Grab   •   %s = Auto Eat   •   %s = Auto Throw\n%s = Auto Sell (Timer → Smart → Desligado)",
         Keys.grab.Name, Keys.eat.Name, Keys.throw.Name, Keys.sell.Name
     ))
 end
 
-Z.AddTab("Main", "🎮", LoadMain)
-Z.AddTab("Presets", "📦", LoadPresets)
+-- ═══════════════════════════════════════════════════════════════════════
+-- REGISTRO DAS ABAS
+-- ═══════════════════════════════════════════════════════════════════════
+Z.AddTab("Main",       "🎮", LoadMain)
+Z.AddTab("Grab",       "🌾", LoadGrab)
+Z.AddTab("Eat/Sell",   "🍽️", LoadEatSell)
+Z.AddTab("Walk",       "🚶", LoadWalk)
+Z.AddTab("Rewards",    "🎁", LoadRewards)
+Z.AddTab("Map",        "🗺️", LoadMap)
+Z.AddTab("Size Stuck", "📏", LoadSizeStuck)
+Z.AddTab("Shortcuts",  "⌨️", LoadShortcuts)
+Z.AddTab("Presets",    "📦", LoadPresets)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- ATALHOS DE TECLADO
@@ -1011,5 +1030,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v9.5 carregado!", C.Success, 3)
-print("⚡ ETW Module v9.5 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v10.0 carregado!", C.Success, 3)
+print("⚡ ETW Module v10.0 iniciado")
