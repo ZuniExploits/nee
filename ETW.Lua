@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v8.3                                        ║
+-- ║  ZUNI HUB - ETW MODULE v8.4                                        ║
 -- ║  Presets • Bedrock • Grab cooldown • Auto-off por HRP ancorado     ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -19,7 +19,6 @@ local UI     = Z.UI
 local Player = game:GetService("Players").LocalPlayer
 local UIS    = game:GetService("UserInputService")
 local RS     = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService") -- FIX: Declaração do RunService
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- CONFIG
@@ -258,66 +257,72 @@ local function ResetAutoOff()
     autoOff.offSince = 0
 end
 
--- Watchdog global: roda independente de qualquer feature
-local AutoOffGrabConn = RunService.Heartbeat:Connect(function()
-    if not Z.Alive then return end
-    if not S.autoOffGrabEnabled then
-        if autoOff.watching then ResetAutoOff() end
-        return
-    end
+-- Watchdog global com verificação de segurança
+task.spawn(function()
+    local ok, conn = pcall(function()
+        return game:GetService("RunService").Heartbeat:Connect(function()
+            pcall(function()
+                if not Z.Alive then return end
+                if not S.autoOffGrabEnabled then
+                    if autoOff.watching then ResetAutoOff() end
+                    return
+                end
 
-    -- Se o grab está ligado, monitora
-    if Features.grab and Features.grab.running then
-        autoOff.offSince = 0
-        local hrp = GetHRP()
-        local pos = hrp and hrp.Position or nil
-        local sz = GetSize()
-        local now = tick()
+                if Features.grab and Features.grab.running then
+                    autoOff.offSince = 0
+                    local hrp = GetHRP()
+                    local pos = hrp and hrp.Position or nil
+                    local sz = GetSize()
+                    local now = tick()
 
-        if sz ~= nil then
-            if autoOff.lastSize == nil then
-                autoOff.lastSize = sz
-                autoOff.sameSizeSince = now
-            elseif sz ~= autoOff.lastSize then
-                autoOff.lastSize = sz
-                autoOff.sameSizeSince = now
-            end
-        end
+                    if sz ~= nil then
+                        if autoOff.lastSize == nil then
+                            autoOff.lastSize = sz
+                            autoOff.sameSizeSince = now
+                        elseif sz ~= autoOff.lastSize then
+                            autoOff.lastSize = sz
+                            autoOff.sameSizeSince = now
+                        end
+                    end
 
-        if pos and autoOff.lastPos then
-            local moved = (pos - autoOff.lastPos).Magnitude
-            if moved < 0.5 then
-                if not autoOff.stuckSince then autoOff.stuckSince = now end
-            else
-                autoOff.stuckSince = nil
-            end
-        end
-        autoOff.lastPos = pos
+                    if pos and autoOff.lastPos then
+                        local moved = (pos - autoOff.lastPos).Magnitude
+                        if moved < 0.5 then
+                            if not autoOff.stuckSince then autoOff.stuckSince = now end
+                        else
+                            autoOff.stuckSince = nil
+                        end
+                    end
+                    autoOff.lastPos = pos
 
-        local sizeStuck = autoOff.sameSizeSince and (now - autoOff.sameSizeSince >= S.autoOffGrabThreshold)
-        local posStuck  = autoOff.stuckSince and (now - autoOff.stuckSince >= S.autoOffGrabThreshold)
+                    local sizeStuck = autoOff.sameSizeSince and (now - autoOff.sameSizeSince >= S.autoOffGrabThreshold)
+                    local posStuck  = autoOff.stuckSince and (now - autoOff.stuckSince >= S.autoOffGrabThreshold)
 
-        if sizeStuck and posStuck and not autoOff.watching then
-            autoOff.watching = true
-            autoOff.offSince = now
-            SetFeature("grab", false, false)
-            Z.Notify("Auto Grab", "Desligado: sem crescer e parado. Aguardando HRP desancorar.", C.Warning, 4)
-        end
-        return
-    end
+                    if sizeStuck and posStuck and not autoOff.watching then
+                        autoOff.watching = true
+                        autoOff.offSince = now
+                        SetFeature("grab", false, false)
+                        Z.Notify("Auto Grab", "Desligado: sem crescer e parado. Aguardando HRP desancorar.", C.Warning, 4)
+                    end
+                    return
+                end
 
-    -- Grab já desligado por este motivo? Só religa quando HRP desancorar
-    if autoOff.watching then
-        local hrp = GetHRP()
-        if hrp and not hrp.Anchored then
-            autoOff.watching = false
-            ResetAutoOff()
-            SetFeature("grab", true, false)
-            Z.Notify("Auto Grab", "HRP desancorado. Auto Grab religado.", C.Success, 3)
-        end
+                if autoOff.watching then
+                    local hrp = GetHRP()
+                    if hrp and not hrp.Anchored then
+                        autoOff.watching = false
+                        ResetAutoOff()
+                        SetFeature("grab", true, false)
+                        Z.Notify("Auto Grab", "HRP desancorado. Auto Grab religado.", C.Success, 3)
+                    end
+                end
+            end)
+        end)
+    end)
+    if ok and conn then
+        Z.Track(conn)
     end
 end)
-Z.Track(AutoOffGrabConn)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- GRAB
@@ -867,5 +872,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v8.3 carregado!", C.Success, 3)
-print("⚡ ETW Module v8.3 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v8.4 carregado!", C.Success, 3)
+print("⚡ ETW Module v8.4 iniciado")
