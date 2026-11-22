@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v10.0                                       ║
--- ║  Abas por categoria • 2 presets                                    ║
+-- ║  ZUNI HUB - ETW MODULE v10.1                                       ║
+-- ║  Aba Auto Upgrades • Unstuck unificado • Sem aba de atalhos        ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -79,6 +79,11 @@ Def("sizeStuckRepauseDelay", 5.0)
 -- Skip/pause geral
 Def("autoPauseAfterSkip", true)
 Def("autoPauseDelay", 5)
+
+-- Auto Upgrades
+Def("autoUpgradesEnabled", false)
+Def("autoUpgradesInterval", 1000)   -- ms
+Def("autoUpgradesSelected", {})     -- tabela de selecionados
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS
@@ -172,6 +177,43 @@ local function TeleportToPlatform()
     if not target then return false end
     pcall(function() hrp.CFrame = CFrame.new(target) end)
     return true
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- AUTO UPGRADES — helpers
+-- ═══════════════════════════════════════════════════════════════════════
+local ItemInfo = nil
+local function GetItemInfo()
+    if ItemInfo == nil then
+        local m = RS:FindFirstChild("ItemInfo")
+        if m then
+            local ok, r = pcall(require, m)
+            ItemInfo = ok and r or false
+        end
+    end
+    return ItemInfo or nil
+end
+
+local function GetUpgradesFolder()
+    return Player:FindFirstChild("Upgrades")
+end
+
+-- Nomes amigáveis dos upgrades (tenta bater com ItemInfo.Upgrades)
+local AUTO_UPGRADE_NAMES = {
+    "Size",
+    "Speed",
+    "SizeMultiplier",
+    "EatSpeed",
+}
+
+local function GetUpgradeDisplayName(name)
+    local info = GetItemInfo()
+    if info and info.Upgrades and info.Upgrades[name] then
+        return info.Upgrades[name].name or name
+    end
+    -- fallback amigável
+    local pretty = name:gsub("(%l)(%u)", "%1 %2")
+    return pretty
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -280,7 +322,7 @@ local function UnpauseSkipPause(reason)
     lastSkip = tick()
     grabState.failSince = nil
     grabState.stuckSince = nil
-    Z.Notify("Size Stuck", reason or "Size parado. Mapa pulado.", C.Accent, 2.5)
+    Z.Notify("Unstuck", reason or "Travado. Mapa pulado.", C.Accent, 2.5)
     local delay = math.max(0.5, S.sizeStuckRepauseDelay or 5.0)
     pauseToken += 1
     local my = pauseToken
@@ -288,7 +330,7 @@ local function UnpauseSkipPause(reason)
         if my ~= pauseToken then return end
         if not Z.Alive then return end
         if SetMapPaused(true) then
-            Z.Notify("Size Stuck", string.format("Mapa re-pausado %.0fs após o skip.", delay), C.Warning, 2)
+            Z.Notify("Unstuck", string.format("Mapa re-pausado %.0fs após o skip.", delay), C.Warning, 2)
         end
     end)
     return true
@@ -482,7 +524,7 @@ NewFeature("sizeStuckSkip", "Skip se Size parar", function()
     end
     if not sizeStuck.busy and (now - sizeStuck.since) >= S.sizeStuckThreshold then
         sizeStuck.busy = true
-        Z.Notify("Size Stuck",
+        Z.Notify("Unstuck",
             string.format("Size parado há %ds. Unpause → Skip → (re-pause em %.0fs).",
                 math.floor(S.sizeStuckThreshold), S.sizeStuckRepauseDelay),
             C.Warning, 3)
@@ -652,27 +694,32 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- SKIP TIMER / STUCK
+-- AUTO UPGRADES (feature)
 -- ═══════════════════════════════════════════════════════════════════════
-local skipNext = 0
-NewFeature("skipTimer", "Skip Map (Tempo)", function()
-    if not S.skipTimerEnabled then return 1 end
-    local now = tick()
-    if skipNext - now > S.skipInterval then skipNext = now + S.skipInterval end
-    if now >= skipNext then
-        SkipMap("Mapa pulado (tempo).")
-        skipNext = tick() + S.skipInterval
-    end
-    return 0.5
-end, { onStart = function() skipNext = tick() + S.skipInterval end })
+local function FirePurchaseUpgrade(name)
+    local purchaseEvent = GetEvent("PurchaseEvent")
+    if not purchaseEvent then return false end
+    pcall(function() purchaseEvent:FireServer(name) end)
+    return true
+end
 
-NewFeature("skipStuck", "Skip Map (Sem Chunk)", function()
-    if not S.skipStuckEnabled then return 1 end
-    local fs = grabState.failSince
-    if fs and tick() - fs >= S.skipStuckTime and tick() - lastSkip > 3 then
-        SkipMap("Mapa pulado (sem chunk por " .. S.skipStuckTime .. "s).")
+NewFeature("autoUpgrades", "Auto Upgrades", function()
+    if not S.autoUpgradesEnabled then return 1 end
+    local selected = S.autoUpgradesSelected or {}
+    local upgradesFolder = GetUpgradesFolder()
+    if not upgradesFolder then return 1 end
+
+    local any = false
+    for _, name in ipairs(AUTO_UPGRADE_NAMES) do
+        if selected[name] then
+            local val = upgradesFolder:FindFirstChild(name)
+            if val and (val:IsA("NumberValue") or val:IsA("IntValue")) then
+                FirePurchaseUpgrade(name)
+                any = true
+            end
+        end
     end
-    return 0.5
+    return math.max(0.1, (S.autoUpgradesInterval or 1000) / 1000)
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -750,7 +797,7 @@ local function LoadPresets()
     Z.Button("🌾  Normal Farm (andando)", C.Success, function() ApplyPreset("normal") end)
     Z.Button("🧱  Farm #1 (parado + SkipOnSmartSell)", C.Accent, function() ApplyPreset("static") end)
     Z.Sep("ℹ️  SOBRE")
-    Z.Info("Normal Farm: Grab + Eat + Smart Sell + Rewards + Size-Stuck + Auto Walk + Teleporte após falha.\n" ..
+    Z.Info("Normal Farm: Grab + Eat + Smart Sell + Rewards + Unstuck + Auto Walk + Teleporte após falha.\n" ..
            "Farm #1: parado, com SkipOnSmartSell (pula o mapa após cada Smart Sell).")
 end
 
@@ -815,7 +862,7 @@ local function LoadMain()
     end)
 
     Z.Sep("🎛️  CONTROLES RÁPIDOS")
-    Z.Button("▶  Ativar farm completo (Grab + Eat + Smart Sell + Rewards + Size-Stuck)", C.Success, function()
+    Z.Button("▶  Ativar farm completo (Grab + Eat + Smart Sell + Rewards + Unstuck)", C.Success, function()
         for _, k in ipairs({ "grab", "eat", "smartSell", "rewards", "sizeStuckSkip" }) do
             SetFeature(k, true, true)
         end
@@ -840,43 +887,6 @@ local function LoadGrab()
     Z.Slider("Cooldown após falha", 0.5, 15, S.grabFailCooldown, function(v)
         S.grabFailCooldown = v
     end, { step = 0.5, suffix = " s" })
-
-    Z.Sep("📡  TELEPORTE APÓS FALHA")
-    Z.Toggle("Teleportar após falha", S.grabTeleportEnabled, function(v)
-        S.grabTeleportEnabled = v
-    end, "Se não conseguir chunk após X segundos, teleporta para uma plataforma aleatória")
-    Z.Slider("Teleportar após (sem chunk)", 1, 15, S.grabFailTeleportDelay, function(v)
-        S.grabFailTeleportDelay = v
-    end, { step = 0.5, suffix = " s" })
-
-    Z.Toggle("Movimento aleatório após teleporte", S.grabWalkFallback, function(v)
-        S.grabWalkFallback = v
-    end, "Depois de teleportar por falha, anda aleatoriamente")
-    Z.Slider("Duração do movimento", 0.5, 10, S.grabFailMoveDuration, function(v)
-        S.grabFailMoveDuration = v
-    end, { step = 0.5, suffix = " s" })
-
-    Z.Sep("🧱  BEDROCK")
-    Z.Toggle("Pular mapa se preso na Bedrock", S.grabBedrockSkipEnabled, function(v)
-        S.grabBedrockSkipEnabled = v
-    end, "Pula o mapa se ficar muito tempo em cima de Bedrock")
-    Z.Slider("Tempo na Bedrock até pular", 1, 30, S.bedrockSkipTime, function(v)
-        S.bedrockSkipTime = v
-    end, { step = 0.5, suffix = " s" })
-
-    Z.Sep("⏸️  AUTO-OFF DO GRAB")
-    Z.Toggle("Desligar grab se parado e sem crescer", S.autoOffGrabEnabled, function(v)
-        S.autoOffGrabEnabled = v
-        if not v then ResetAutoOff() end
-    end, "Desliga o Auto Grab quando o jogador fica parado e o tamanho não cresce")
-    Z.Slider("Tempo sem crescer + parado", 1, 30, S.autoOffGrabThreshold, function(v)
-        S.autoOffGrabThreshold = v
-    end, { step = 0.5, suffix = " s" })
-
-    Z.Sep("🧍  STUCK")
-    Z.Slider("Tempo para considerar travado", 0.5, 5, S.grabStuckTime, function(v)
-        S.grabStuckTime = v
-    end, { step = 0.1, suffix = " s" })
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -913,7 +923,6 @@ local function LoadWalk()
     Z.Slider("WalkSpeed no walk", 16, 150, S.walkSpeed, function(v) S.walkSpeed = v end, { step = 2, suffix = " studs/s" })
     Z.Slider("Raio de caminhada", 20, 150, S.walkRadius, function(v) S.walkRadius = v end, { step = 5, suffix = " studs" })
     Z.Slider("Pausa entre destinos", 0, 3000, S.walkInterval, function(v) S.walkInterval = v end, { step = 50, suffix = " ms" })
-    Z.Slider("Tempo para considerar travado no walk", 1, 10, S.walkStuckTime, function(v) S.walkStuckTime = v end, { step = 0.5, suffix = " s" })
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -967,9 +976,9 @@ local function LoadMap()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA: SIZE STUCK
+-- ABA: UNSTUCK (antes: Size Stuck)
 -- ═══════════════════════════════════════════════════════════════════════
-local function LoadSizeStuck()
+local function LoadUnstuck()
     Z.Sep("📏  SKIP SE SIZE PARAR")
     FeatureToggle("sizeStuckSkip", "Skip se Size parar",
         "Se o Size não mudar por X segundos, unpause → skip → re-pause após Y segundos.")
@@ -983,35 +992,105 @@ local function LoadSizeStuck()
     Z.Slider("Re-pausar após skip", 1, 30, S.sizeStuckRepauseDelay, function(v)
         S.sizeStuckRepauseDelay = v
     end, { step = 0.5, suffix = " s" })
-    Z.Info("Ao atingir o tempo sem mudar o Size: despausa, pula, e re-pausa após o delay configurado (padrão 5s).")
+
+    Z.Sep("📡  TELEPORTE APÓS FALHA DO GRAB")
+    Z.Toggle("Teleportar após falha", S.grabTeleportEnabled, function(v)
+        S.grabTeleportEnabled = v
+    end, "Se não conseguir chunk após X segundos, teleporta para uma plataforma aleatória")
+    Z.Slider("Teleportar após (sem chunk)", 1, 15, S.grabFailTeleportDelay, function(v)
+        S.grabFailTeleportDelay = v
+    end, { step = 0.5, suffix = " s" })
+    Z.Toggle("Movimento aleatório após teleporte", S.grabWalkFallback, function(v)
+        S.grabWalkFallback = v
+    end, "Depois de teleportar por falha, anda aleatoriamente")
+    Z.Slider("Duração do movimento", 0.5, 10, S.grabFailMoveDuration, function(v)
+        S.grabFailMoveDuration = v
+    end, { step = 0.5, suffix = " s" })
+
+    Z.Sep("🧱  BEDROCK")
+    Z.Toggle("Pular mapa se preso na Bedrock", S.grabBedrockSkipEnabled, function(v)
+        S.grabBedrockSkipEnabled = v
+    end, "Pula o mapa se ficar muito tempo em cima de Bedrock")
+    Z.Slider("Tempo na Bedrock até pular", 1, 30, S.bedrockSkipTime, function(v)
+        S.bedrockSkipTime = v
+    end, { step = 0.5, suffix = " s" })
+
+    Z.Sep("⏸️  AUTO-OFF DO GRAB")
+    Z.Toggle("Desligar grab se parado e sem crescer", S.autoOffGrabEnabled, function(v)
+        S.autoOffGrabEnabled = v
+        if not v then ResetAutoOff() end
+    end, "Desliga o Auto Grab quando o jogador fica parado e o tamanho não cresce")
+    Z.Slider("Tempo sem crescer + parado", 1, 30, S.autoOffGrabThreshold, function(v)
+        S.autoOffGrabThreshold = v
+    end, { step = 0.5, suffix = " s" })
+
+    Z.Sep("🧍  STUCK DO GRAB / WALK")
+    Z.Slider("Grab: tempo para considerar travado", 0.5, 5, S.grabStuckTime, function(v)
+        S.grabStuckTime = v
+    end, { step = 0.1, suffix = " s" })
+    Z.Slider("Walk: tempo para considerar travado", 1, 10, S.walkStuckTime, function(v)
+        S.walkStuckTime = v
+    end, { step = 0.5, suffix = " s" })
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA: SHORTCUTS
+-- ABA: AUTO UPGRADES
 -- ═══════════════════════════════════════════════════════════════════════
-local function LoadShortcuts()
-    Z.Sep("⌨️  ATALHOS DE TECLADO")
-    Z.Info(string.format(
-        "%s = Auto Grab   •   %s = Auto Eat   •   %s = Auto Throw\n%s = Auto Sell (Timer → Smart → Desligado)",
-        Keys.grab.Name, Keys.eat.Name, Keys.throw.Name, Keys.sell.Name
-    ))
+local upgradeButtons = {}
+
+local function SelectUpgrade(name)
+    S.autoUpgradesSelected = S.autoUpgradesSelected or {}
+    S.autoUpgradesSelected[name] = not S.autoUpgradesSelected[name]
+    local btn = upgradeButtons[name]
+    if btn then
+        btn:Set(S.autoUpgradesSelected[name], true)
+    end
+    Z.Notify("Auto Upgrades",
+        (S.autoUpgradesSelected[name] and "Selecionado: " or "Desselecionado: ") .. GetUpgradeDisplayName(name),
+        S.autoUpgradesSelected[name] and C.Success or C.TextDim, 1.5)
+end
+
+local function LoadAutoUpgrades()
+    Z.Sep("⚡  AUTO UPGRADES")
+    Z.Info("Selecione quais upgrades o bot compra automaticamente. O Auto Upgrade tenta comprar a cada 1s.")
+
+    S.autoUpgradesSelected = S.autoUpgradesSelected or {}
+
+    for _, name in ipairs(AUTO_UPGRADE_NAMES) do
+        local display = GetUpgradeDisplayName(name)
+        local btn = Z.Button("🎯  " .. display, C.TextDim, function()
+            SelectUpgrade(name)
+        end)
+        upgradeButtons[name] = btn
+        btn:Set(S.autoUpgradesSelected[name] == true, true)
+    end
+
+    Z.Sep("🤖  AUTOMAÇÃO")
+    FeatureToggle("autoUpgrades", "Auto Upgrade",
+        "Tenta comprar os upgrades selecionados a cada 1s.")
+    Z.Slider("Intervalo do Auto Upgrade", 200, 5000, S.autoUpgradesInterval, function(v)
+        S.autoUpgradesInterval = v
+    end, { step = 100, suffix = " ms" })
+
+    Z.Sep("💡  DICA")
+    Z.Info("O bot usa o evento de compra do jogo. Se o servidor tiver validação de preço, pode falhar em compras caras.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- REGISTRO DAS ABAS
 -- ═══════════════════════════════════════════════════════════════════════
-Z.AddTab("Main",       "🎮", LoadMain)
-Z.AddTab("Grab",       "🌾", LoadGrab)
-Z.AddTab("Eat/Sell",   "🍽️", LoadEatSell)
-Z.AddTab("Walk",       "🚶", LoadWalk)
-Z.AddTab("Rewards",    "🎁", LoadRewards)
-Z.AddTab("Map",        "🗺️", LoadMap)
-Z.AddTab("Size Stuck", "📏", LoadSizeStuck)
-Z.AddTab("Shortcuts",  "⌨️", LoadShortcuts)
-Z.AddTab("Presets",    "📦", LoadPresets)
+Z.AddTab("Main",        "🎮", LoadMain)
+Z.AddTab("Grab",        "🌾", LoadGrab)
+Z.AddTab("Eat/Sell",    "🍽️", LoadEatSell)
+Z.AddTab("Walk",        "🚶", LoadWalk)
+Z.AddTab("Rewards",     "🎁", LoadRewards)
+Z.AddTab("Map",         "🗺️", LoadMap)
+Z.AddTab("Unstuck",     "📏", LoadUnstuck)
+Z.AddTab("Auto Upgrades","⚡", LoadAutoUpgrades)
+Z.AddTab("Presets",     "📦", LoadPresets)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ATALHOS DE TECLADO
+-- ATALHOS DE TECLADO (funcionam, mas não têm aba dedicada)
 -- ═══════════════════════════════════════════════════════════════════════
 local function Flip(key) SetFeature(key, not Features[key].running) end
 
@@ -1030,5 +1109,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v10.0 carregado!", C.Success, 3)
-print("⚡ ETW Module v10.0 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v10.1 carregado!", C.Success, 3)
+print("⚡ ETW Module v10.1 iniciado")
