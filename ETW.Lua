@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v9.3                                        ║
--- ║  Grab Único • Contador de Tentativas • Skip após 3 Falhas          ║
+-- ║  ZUNI HUB - ETW MODULE v9.4                                        ║
+-- ║  Grab Único • Watchdog sem chunk (3s x 3) • Skip automático        ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -31,7 +31,6 @@ local Keys = {
 }
 local GROUP_ID     = 10587104
 local SKIP_MAPTIME = 0
-local MAX_GRAB_ATTEMPTS = 3   -- tenta 3x; se falhar todas, pula o mapa
 
 local function Def(k, v) if S[k] == nil then S[k] = v end end
 Def("eatInterval", 50)
@@ -56,7 +55,10 @@ Def("bedrockSkipTime", 4.0)
 Def("skipOnSmartSell", false)
 Def("autoOffGrabThreshold", 5.0)
 Def("autoOffGrabEnabled", true)
-Def("grabMaxAttempts", MAX_GRAB_ATTEMPTS)
+
+-- Watchdog "sem chunk"
+Def("noChunkWindow", 3.0)      -- segundos sem chunk para contar 1 tentativa
+Def("noChunkMaxAttempts", 3)   -- tentativas sem chunk antes de pular mapa
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS DO JOGO
@@ -207,7 +209,22 @@ end
 local grabState = { failSince = nil, lastGrabAt = 0, lastPos = nil, stuckSince = nil }
 local lastSkip = 0
 local pauseToken = 0
-local grabAttempts = 0   -- contador de tentativas consecutivas que falharam
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- WATCHDOG: "sem chunk"
+--   - fica X segundos sem chunk contínuo → +1 tentativa
+--   - se voltar a ter chunk → zera tentativas e o timer
+--   - se atingir maxAttempts → SkipMap
+-- ═══════════════════════════════════════════════════════════════════════
+local noChunk = {
+    since = nil,      -- tick em que ficou sem chunk
+    attempts = 0,     -- tentativas (janelas de X seg completas sem chunk)
+}
+
+local function ResetNoChunk()
+    noChunk.since = nil
+    noChunk.attempts = 0
+end
 
 local function SetMapPaused(v)
     local ev = GetEvent("SetServerSettings")
@@ -226,7 +243,7 @@ local function SkipMap(reason)
     lastSkip = tick()
     grabState.failSince = nil
     grabState.stuckSince = nil
-    grabAttempts = 0   -- reseta contador ao pular mapa
+    ResetNoChunk()
     pcall(function() ev:FireServer({ Paused = false }) end)
     Z.Notify("Skip Map", reason or "Mapa pulado.", C.Accent, 2)
     if S.autoPauseAfterSkip then
@@ -331,8 +348,8 @@ end)
 local grabFallback = { walking = false, wasWalkOn = false, moveUntil = 0 }
 local grabCooldown = { until_ = 0 }
 local bedrockState = { since = nil }
-local grabTried = false       -- já disparou o Grab desde que perdeu o chunk
-local grabSucceeded = false   -- conseguiu chunk em algum momento durante a tentativa
+local grabTried = false
+local grabSucceeded = false
 
 local function StartTempWalk()
     if grabFallback.walking then return end
@@ -357,15 +374,13 @@ local function ResetGrab()
     grabCooldown.until_ = 0
     grabTried = false
     grabSucceeded = false
-    grabAttempts = 0
     StopTempWalk()
 end
 
 NewFeature("grab", "Auto Grab", function()
-    -- Se ele JÁ TEM chunk, não tenta pegar. Marca sucesso e reseta as flags.
     if HasChunk() then
-        grabSucceeded = true      -- confirma que o grab deu certo
-        grabTried = false         -- pode tentar de novo quando perder o chunk
+        grabSucceeded = true
+        grabTried = false
         grabState.failSince = nil
         grabState.stuckSince = nil
         grabCooldown.until_ = 0
@@ -375,7 +390,6 @@ NewFeature("grab", "Auto Grab", function()
         return 0.05
     end
 
-    -- Se já tentou e ainda não temos chunk, não dispara de novo
     if grabTried then
         return 0.05
     end
@@ -405,55 +419,29 @@ NewFeature("grab", "Auto Grab", function()
     end
     bedrockState.since = nil
 
-    -- Cooldown (após falha de 3s)
     if now < grabCooldown.until_ then
         return 0.05
     end
 
-    -- Marca que já tentou pegar AGORA (só uma vez)
     grabTried = true
     grabSucceeded = false
-
-    -- Tenta pegar (única vez)
     task.spawn(FireEvent, "Grab")
 
-    -- Verifica falha apenas depois de 3 segundos (3000ms)
+    -- Só reseta grabTried/sucesso após 3s; a contagem de "sem chunk" é feita pelo watchdog
     task.delay(3.0, function()
         if not Features.grab or not Features.grab.running then return end
-
-        -- ✅ Se em algum momento durante os 3s o jogador TEVE chunk, considera sucesso
         if grabSucceeded or HasChunk() then
             grabTried = false
-            grabAttempts = 0   -- resetou o contador de tentativas ao conseguir
             return
         end
-
-        -- ❌ Falhou de verdade após 3s (nunca teve chunk durante a tentativa)
-        grabAttempts += 1
         grabTried = false
         grabCooldown.until_ = tick() + S.grabFailCooldown
-
-        Z.Notify("Auto Grab",
-            string.format("Tentativa %d/%d falhou. Aguardando %.1fs.",
-                grabAttempts, S.grabMaxAttempts, S.grabFailCooldown),
-            C.Warning, 2)
-
-        -- Se atingiu o máximo de tentativas, pula o mapa
-        if grabAttempts >= S.grabMaxAttempts then
-            Z.Notify("Auto Grab",
-                string.format("Falhou %d vezes seguidas. Pulando mapa.", S.grabMaxAttempts),
-                C.Danger, 3)
-            SkipMap(string.format("Mapa pulado após %d tentativas falhas.", S.grabMaxAttempts))
-            return
-        end
-
         if S.grabWalkFallback and not grabFallback.walking then
             StartTempWalk()
             grabFallback.moveUntil = tick() + S.grabFailMoveDuration
         end
     end)
 
-    -- Se ficou muito tempo parado (sem chunk), teleporta
     if grabState.stuckSince and (now - grabState.stuckSince) >= S.grabStuckTime then
         if pos then
             local target = RandomWalkablePos(pos, S.walkRadius)
@@ -469,7 +457,54 @@ NewFeature("grab", "Auto Grab", function()
 end, { onStart = ResetGrab, onStop = ResetGrab })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- EAT (Só come se TIVER chunk, a cada 50ms)
+-- WATCHDOG SEM CHUNK (feature independente)
+--   - Se ficar S.noChunkWindow segundos sem chunk → +1 tentativa
+--   - Se atingir S.noChunkMaxAttempts → SkipMap
+--   - Se voltar a ter chunk → zera
+-- ═══════════════════════════════════════════════════════════════════════
+NewFeature("noChunkWatchdog", "Skip após ficar sem chunk", function()
+    local now = tick()
+
+    if HasChunk() then
+        -- tem chunk → reseta tudo
+        if noChunk.since or noChunk.attempts > 0 then
+            noChunk.since = nil
+            noChunk.attempts = 0
+        end
+        return 0.15
+    end
+
+    -- sem chunk
+    if not noChunk.since then
+        noChunk.since = now
+        return 0.15
+    end
+
+    local semChunkPor = now - noChunk.since
+    if semChunkPor >= S.noChunkWindow then
+        noChunk.attempts += 1
+        noChunk.since = now  -- reinicia a janela
+
+        Z.Notify("Sem Chunk",
+            string.format("Sem chunk há %ds. Tentativa %d/%d.",
+                math.floor(S.noChunkWindow), noChunk.attempts, S.noChunkMaxAttempts),
+            C.Warning, 2.5)
+
+        if noChunk.attempts >= S.noChunkMaxAttempts then
+            Z.Notify("Sem Chunk",
+                string.format("Atingiu %d janelas sem chunk. Pulando mapa.", S.noChunkMaxAttempts),
+                C.Danger, 3)
+            SkipMap(string.format("Mapa pulado após %d janelas de %ds sem chunk.",
+                S.noChunkMaxAttempts, math.floor(S.noChunkWindow)))
+            return 0.5
+        end
+    end
+
+    return 0.15
+end)
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- EAT
 -- ═══════════════════════════════════════════════════════════════════════
 NewFeature("eat", "Auto Eat", function()
     if HasChunk() then
@@ -686,7 +721,7 @@ local function ApplyPreset(name)
     grabCooldown.until_ = 0
     grabTried = false
     grabSucceeded = false
-    grabAttempts = 0
+    ResetNoChunk()
     ResetAutoOff()
     StopTempWalk()
 
@@ -695,7 +730,7 @@ local function ApplyPreset(name)
         SetFeature("eat", true, true)
         SetFeature("smartSell", true, true)
         SetFeature("rewards", true, true)
-        SetFeature("skipStuck", true, true)
+        SetFeature("noChunkWatchdog", true, true) -- ⬅️ watchdog ativo
         SetFeature("walk", true, true)
         S.skipOnSmartSell = false
         S.walkSpeed = 30
@@ -706,7 +741,7 @@ local function ApplyPreset(name)
         SetFeature("eat", true, true)
         SetFeature("smartSell", true, true)
         SetFeature("rewards", true, true)
-        SetFeature("skipStuck", true, true)
+        SetFeature("noChunkWatchdog", true, true) -- ⬅️ watchdog ativo
         SetFeature("walk", false, true)
         S.skipOnSmartSell = true
         S.walkSpeed = 16
@@ -764,7 +799,7 @@ local function LoadMain()
     local stMap    = Z.Stat("Mapa", "—")
     local stReward = Z.Stat("Próxima reward", "—")
     local stActive = Z.Stat("Funções ativas", "0")
-    local stGrabAt = Z.Stat("Tentativas de grab", "0/0")  -- ⬅️ NOVO
+    local stNoChunk = Z.Stat("Sem chunk (janelas)", "0/0")  -- ⬅️ NOVO
     Z.PageLoop(0.5, function()
         pcall(function()
             local sz = GetSize()
@@ -788,22 +823,30 @@ local function LoadMain()
             else stReward.Set(Fmt(nr)) end
             local n = CountActive()
             stActive.Set(tostring(n), n > 0 and C.Success or C.TextDim)
-            -- ⬇️ status do contador de tentativas
-            local maxA = S.grabMaxAttempts or 3
-            stGrabAt.Set(string.format("%d/%d", grabAttempts, maxA),
-                grabAttempts > 0 and C.Warning or C.TextDim)
+
+            -- sem chunk: mostra tentativas e tempo restante da janela atual
+            local maxA = S.noChunkMaxAttempts or 3
+            if has then
+                stNoChunk.Set(string.format("0/%d", maxA), C.TextDim)
+            else
+                local elapsed = noChunk.since and (tick() - noChunk.since) or 0
+                local rest = math.max(0, S.noChunkWindow - elapsed)
+                stNoChunk.Set(string.format("%d/%d  (%.1fs)", noChunk.attempts, maxA, rest),
+                    C.Warning)
+            end
         end)
     end)
 
     Z.Sep("🎛️  CONTROLES RÁPIDOS")
     Z.Button("▶  Ativar farm completo (Grab + Eat + Smart Sell + Rewards)", C.Success, function()
-        for _, k in ipairs({ "grab", "eat", "smartSell", "rewards" }) do SetFeature(k, true, true) end
+        for _, k in ipairs({ "grab", "eat", "smartSell", "rewards", "noChunkWatchdog" }) do SetFeature(k, true, true) end
         Z.Notify("ETW", "Farm completo ativado.", C.Success, 2)
     end)
     Z.Button("⏭  Pular mapa agora", C.Accent, function() SkipMap("Mapa pulado.") end)
     Z.Button("⏹  Desligar tudo", C.Danger, function()
         for key in pairs(Features) do SetFeature(key, false, true) end
         ResetAutoOff()
+        ResetNoChunk()
         Z.Notify("ETW", "Todas as funções desligadas.", C.TextDim, 2)
     end)
 
@@ -843,11 +886,6 @@ local function LoadMain()
     end, { step = 0.5, suffix = " s" })
     Z.Info("Tempo que o script fica sem tentar pegar após confirmar a falha de 3s.")
 
-    Z.Slider("Máximo de tentativas antes de pular mapa", 1, 20, S.grabMaxAttempts, function(v)
-        S.grabMaxAttempts = v
-    end, { suffix = " tentativas" })
-    Z.Info("Se falhar nessa quantidade de tentativas consecutivas, o mapa é pulado automaticamente. O contador zera ao conseguir pegar.")
-
     Z.Toggle("Movimento aleatório após falha", S.grabWalkFallback, function(v)
         S.grabWalkFallback = v
     end, "Se não conseguir chunk após 3s, anda aleatoriamente")
@@ -870,6 +908,17 @@ local function LoadMain()
         S.autoOffGrabThreshold = v
     end, { step = 0.5, suffix = " s" })
     Z.Info("Quando o Grab é desligado por esse motivo, ele só religa sozinho quando o HRP do jogador desancorar.")
+
+    Z.Sep("🚫  WATCHDOG SEM CHUNK")
+    FeatureToggle("noChunkWatchdog", "Pular mapa após ficar sem chunk",
+        "Se ficar X segundos sem chunk continuamente, conta 1 tentativa. Ao atingir o máximo, pula o mapa.")
+    Z.Slider("Janela sem chunk", 1, 15, S.noChunkWindow, function(v)
+        S.noChunkWindow = v
+    end, { step = 0.5, suffix = " s" })
+    Z.Slider("Máximo de janelas sem chunk", 1, 20, S.noChunkMaxAttempts, function(v)
+        S.noChunkMaxAttempts = v
+    end, { suffix = " janelas" })
+    Z.Info("Ex.: 3s × 3 = fica 9s sem chunk e pula. Ao voltar a ter chunk, o contador zera.")
 
     Z.Sep("🍽️  COMER — AUTO EAT")
     FeatureToggle("eat", "Auto Eat", "Come automaticamente se tiver um chunk.")
@@ -929,5 +978,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v9.3 carregado!", C.Success, 3)
-print("⚡ ETW Module v9.3 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v9.4 carregado!", C.Success, 3)
+print("⚡ ETW Module v9.4 iniciado")
