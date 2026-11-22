@@ -3,14 +3,14 @@
 -- ║  Limpa, baixa a base, detecta o jogo e carrega o módulo            ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
-local BASE_URL = "https://raw.githubusercontent.com/SEU_USUARIO/ZuniExploits/main/Zuni_hub_base.lua"
-local ETW_URL  = "https://raw.githubusercontent.com/SEU_USUARIO/ZuniExploits/main/ETW.lua"
-local CB_URL  = "https://raw.githubusercontent.com/SEU_USUARIO/ZuniExploits/main/CB.lua"
+local BASE_URL = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/Zuni_hub_base.lua"
+local ETW_URL  = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/ETW.Lua"
+local NDS_URL  = "https://raw.githubusercontent.com/pietrocanaltu-rgb/nee/refs/heads/main/NDS.Lua"
 
 -- GameId -> módulo
 local Modules = {
     [5677613211] = { name = "ETW", url = ETW_URL },
-    [189707]     = { name = "CB", url = CB_URL },
+    [189707]     = { name = "NDS", url = NDS_URL },
 }
 
 -- ═══════════════════════════════════════════════════════════════════════
