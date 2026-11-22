@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v10.3                                       ║
--- ║  Revisão completa • Auto Upgrades fix • Skip sem duplicatas        ║
+-- ║  ZUNI HUB - ETW MODULE v10.4                                       ║
+-- ║  Auto Upgrades (igual ShopScript) • Toggles visuais                ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -180,7 +180,7 @@ local function TeleportToPlatform()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES — helpers
+-- AUTO UPGRADES — helpers (igual ShopScript)
 -- ═══════════════════════════════════════════════════════════════════════
 local ItemInfo = nil
 local function GetItemInfo()
@@ -196,6 +196,30 @@ end
 
 local function GetUpgradesFolder()
     return Player:FindFirstChild("Upgrades")
+end
+
+local function GetCubes()
+    local gui = Player:FindFirstChild("PlayerGui")
+    if gui then
+        local screen = gui:FindFirstChild("ScreenGui")
+        if screen then
+            local shop = screen:FindFirstChild("Shop")
+            if shop then
+                local cubeFrame = shop:FindFirstChild("CubeFrame")
+                if cubeFrame then
+                    local counter = cubeFrame:FindFirstChild("CounterFrame")
+                    if counter then
+                        local cubesText = counter:FindFirstChild("Cubes")
+                        if cubesText and cubesText:IsA("TextLabel") then
+                            local num = tonumber(string.gsub(cubesText.Text, ",", ""))
+                            if num then return num end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return 0
 end
 
 local AUTO_UPGRADE_NAMES = {
@@ -694,37 +718,42 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES
+-- AUTO UPGRADES (Feature)
 -- ═══════════════════════════════════════════════════════════════════════
-local function FirePurchaseUpgrade(name)
-    local purchaseEvent = GetEvent("PurchaseEvent")
-    if not purchaseEvent then return false end
-    pcall(function() purchaseEvent:FireServer(name) end)
-    return true
-end
-
 NewFeature("autoUpgrades", "Auto Upgrades", function()
     if not S.autoUpgradesEnabled then return 1 end
     local selected = S.autoUpgradesSelected or {}
     if type(selected) ~= "table" then return 1 end
 
     local upgradesFolder = GetUpgradesFolder()
-    if not upgradesFolder then return 1 end
+    local info = GetItemInfo()
+    if not upgradesFolder or not info or not info.Upgrades then return 1 end
+
+    local cubes = GetCubes()
+    local purchaseEvent = GetEvent("PurchaseEvent")
+    if not purchaseEvent then return 1 end
 
     for _, name in ipairs(AUTO_UPGRADE_NAMES) do
         if selected[name] then
             local val = upgradesFolder:FindFirstChild(name)
-            if val and (val:IsA("NumberValue") or val:IsA("IntValue")) then
-                FirePurchaseUpgrade(name)
+            local upgradeInfo = info.Upgrades[name]
+            
+            if val and upgradeInfo and (val:IsA("NumberValue") or val:IsA("IntValue")) then
+                local nextLevel = val.Value + 1
+                local price = 0
+                
+                if type(upgradeInfo.priceFunction) == "function" then
+                    pcall(function() price = upgradeInfo.priceFunction(nextLevel) end)
+                end
+                
+                if cubes >= price then
+                    pcall(function() purchaseEvent:FireServer(name) end)
+                end
             end
         end
     end
     return math.max(0.1, (S.autoUpgradesInterval or 1000) / 1000)
-end, {
-    onStop = function()
-        -- reseta flags se precisar
-    end
-})
+end, { onStop = function() end })
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- PRESETS
@@ -836,6 +865,7 @@ local function LoadMain()
     local stReward = Z.Stat("Próxima reward", "—")
     local stActive = Z.Stat("Funções ativas", "0")
     local stSizeStuck = Z.Stat("Size parado há", "—")
+    local stCubes  = Z.Stat("Cubes", "0")
     Z.PageLoop(0.5, function()
         pcall(function()
             local sz = GetSize()
@@ -862,6 +892,7 @@ local function LoadMain()
             else
                 stSizeStuck.Set("—", C.TextDim)
             end
+            stCubes.Set(tostring(GetCubes()), C.Text)
         end)
     end)
 
@@ -967,7 +998,6 @@ local function LoadMap()
     end, { suffix = " s" })
 
     Z.Sep("⏭️  SKIP POR TEMPO")
-    -- Apenas um FeatureToggle é criado por feature, sem duplicata
     UI.skipTimer = Z.Toggle("Skip Map (Tempo)", Features.skipTimer.running, function(v) SetFeature("skipTimer", v, true) end, "Pula o mapa a cada X segundos")
     Z.Toggle("Ativar Skip por tempo", S.skipTimerEnabled, function(v) S.skipTimerEnabled = v end,
         "Precisa estar ligado para o Skip por tempo funcionar.")
@@ -1041,73 +1071,38 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 -- ABA: AUTO UPGRADES
 -- ═══════════════════════════════════════════════════════════════════════
-local upgradeButtons = {}
-
-local function RefreshUpgradeButton(name)
-    local btn = upgradeButtons[name]
-    if not btn then return end
-    local isSelected = S.autoUpgradesSelected and S.autoUpgradesSelected[name]
-
-    -- Tenta alterar cor de fundo com segurança
-    local ok, err = pcall(function()
-        if isSelected then
-            btn.BackgroundColor3 = C.Success or Color3.fromRGB(82, 176, 77)
-        else
-            btn.BackgroundColor3 = C.TextDim or Color3.fromRGB(60, 60, 60)
-        end
-    end)
-    if not ok then
-        -- Fallback: se por acaso o botão for uma instância que não tem BackgroundColor3
-        -- (ex: Z.Button retornando um frame), tenta achar o fundo.
-        warn("[ETW] Falha ao alterar cor do botão de upgrade: " .. tostring(err))
-    end
-end
-
-local function ToggleUpgrade(name)
-    S.autoUpgradesSelected = S.autoUpgradesSelected or {}
-    S.autoUpgradesSelected[name] = not S.autoUpgradesSelected[name]
-
-    RefreshUpgradeButton(name)
-
-    Z.Notify("Auto Upgrades",
-        (S.autoUpgradesSelected[name] and "Selecionado: " or "Desselecionado: ") .. GetUpgradeDisplayName(name),
-        S.autoUpgradesSelected[name] and C.Success or C.TextDim, 1.5)
-end
+local upgradeToggles = {}
 
 local function LoadAutoUpgrades()
     Z.Sep("⚡  AUTO UPGRADES")
-    Z.Info("Selecione quais upgrades o bot compra automaticamente. O Auto Upgrade tenta comprar a cada 1s.")
+    Z.Info("Selecione quais upgrades o bot compra automaticamente (somente se tiver Cubes). O Auto Upgrade tenta comprar a cada 1s.")
 
-    -- Garante que seja uma tabela válida
     if type(S.autoUpgradesSelected) ~= "table" then
         S.autoUpgradesSelected = {}
     end
 
     for _, name in ipairs(AUTO_UPGRADE_NAMES) do
         local display = GetUpgradeDisplayName(name)
-
-        -- Cria o botão (Z.Button) e guarda a referência
-        local btn = Z.Button("🎯  " .. display, C.TextDim, function()
-            ToggleUpgrade(name)
-        end)
-
-        if btn then
-            upgradeButtons[name] = btn
-            RefreshUpgradeButton(name)
-        else
-            warn("[ETW] Z.Button retornou nil para o upgrade: " .. name)
-        end
+        
+        upgradeToggles[name] = Z.Toggle("🎯  " .. display, S.autoUpgradesSelected[name] == true, function(v)
+            S.autoUpgradesSelected[name] = v
+            if v then
+                Z.Notify("Auto Upgrades", "Selecionado: " .. display, C.Success, 1.5)
+            else
+                Z.Notify("Auto Upgrades", "Desselecionado: " .. display, C.TextDim, 1.5)
+            end
+        end, "Ativar/desativar upgrade automático para " .. display)
     end
 
     Z.Sep("🤖  AUTOMAÇÃO")
     FeatureToggle("autoUpgrades", "Auto Upgrade",
-        "Tenta comprar os upgrades selecionados a cada 1s.")
+        "Tenta comprar os upgrades selecionados a cada 1s (verifica o preço e os Cubes).")
     Z.Slider("Intervalo do Auto Upgrade", 200, 5000, S.autoUpgradesInterval, function(v)
         S.autoUpgradesInterval = v
     end, { step = 100, suffix = " ms" })
 
     Z.Sep("💡  DICA")
-    Z.Info("O bot usa o evento de compra do jogo. Se o servidor tiver validação de preço, pode falhar em compras caras.")
+    Z.Info("O bot usa o PurchaseEvent do jogo. Ele só compra se você tiver Cubes suficientes para o próximo nível do upgrade.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1143,5 +1138,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v10.3 carregado!", C.Success, 3)
-print("⚡ ETW Module v10.3 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v10.4 carregado!", C.Success, 3)
+print("⚡ ETW Module v10.4 iniciado")
