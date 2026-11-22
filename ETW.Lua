@@ -1,6 +1,7 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v13.0 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  ZUNI HUB - ETW MODULE v13.1 - EDICÃO LEVE + SALVAMENTO            ║
 -- ║  Anti-Void • Presets Editáveis • Auto Upgrade c/ saldo             ║
+-- ║  Rejoin no MESMO servidor (TeleportToPlaceInstance)                ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -97,15 +98,15 @@ Def("autoRejoinTime", 60)
 Def("autoRejoinTimeInterval", 1800)
 
 -- Anti-Void
-Def("antiVoidEnabled", true)      -- liga junto com presets
+Def("antiVoidEnabled", true)
 Def("antiVoidPartName", "ZuniAntiVoid")
 Def("antiVoidThickness", 5)
 Def("antiVoidSize", 4000)
 
--- Presets personalizados: { [nome] = { features = {...}, settings = {...} } }
+-- Presets personalizados
 Def("customPresets", {})
 
--- Estado das Features (para salvar)
+-- Estado das Features
 Def("ActiveFeatures", {})
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -253,7 +254,7 @@ local function TeleportToPlatform()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- CUBES — espelho local (igual ao script Cubes.Cubes)
+-- CUBES — espelho local
 -- ═══════════════════════════════════════════════════════════════════════
 local cubesState = { value = nil, lastUpdate = 0 }
 
@@ -325,8 +326,6 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 -- ANTI-VOID
 -- ═══════════════════════════════════════════════════════════════════════
--- Cria uma Part gigante na posição de workspace.Map.Bedrock (ou fallback)
--- para o player não cair no void.
 local antiVoidPart = nil
 
 local function FindBedrockBase()
@@ -334,7 +333,6 @@ local function FindBedrockBase()
     if map then
         local bed = map:FindFirstChild("Bedrock")
         if bed then
-            -- Pode ser um Model, Part, etc. Se for Model, pega a PrimaryPart ou a primeira BasePart
             if bed:IsA("BasePart") then return bed end
             if bed:IsA("Model") then
                 if bed.PrimaryPart then return bed.PrimaryPart end
@@ -344,7 +342,6 @@ local function FindBedrockBase()
             end
         end
     end
-    -- Fallback: procura qualquer Part chamada "Bedrock" na workspace
     for _, d in ipairs(workspace:GetDescendants()) do
         if d:IsA("BasePart") and d.Name == "Bedrock" then
             return d
@@ -364,7 +361,6 @@ local function CreateAntiVoid()
         center = base.Position
         size = Vector3.new(S.antiVoidSize, S.antiVoidThickness, S.antiVoidSize)
     else
-        -- Fallback: usa a posição do HRP se existir
         local hrp = GetHRP()
         if hrp then
             center = Vector3.new(hrp.Position.X, hrp.Position.Y - 50, hrp.Position.Z)
@@ -387,7 +383,6 @@ local function CreateAntiVoid()
     part.CanQuery = true
     part.CanTouch = false
 
-    -- Tenta parentar em Map se existir, senão na workspace
     local map = workspace:FindFirstChild("Map")
     part.Parent = map or workspace
 
@@ -414,7 +409,6 @@ local function SetAntiVoidEnabled(v)
     SaveConfig()
 end
 
--- Cria automaticamente se estiver ligado ao carregar
 task.spawn(function()
     task.wait(3)
     if S.antiVoidEnabled then
@@ -972,7 +966,7 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES (v13.0 — não cego, com saldo via espelho)
+-- AUTO UPGRADES (v13.1 — não cego, com saldo via espelho)
 -- ═══════════════════════════════════════════════════════════════════════
 local autoUpgState = { lastCanBuy = nil }
 
@@ -1060,7 +1054,7 @@ end, {
 })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO REJOIN (LAG)
+-- AUTO REJOIN — DoRejoin CORRIGIDO (TeleportToPlaceInstance)
 -- ═══════════════════════════════════════════════════════════════════════
 local rejoinState = { lowFpsSince = nil }
 
@@ -1068,12 +1062,23 @@ local function DoRejoin(reason)
     if not Z.Alive then return end
     Z.Notify("Auto Rejoin", reason or "Reconectando...", C.Warning, 5)
     SaveConfig()
-    SetFeature("autoRejoin", false, true) 
+    SetFeature("autoRejoin", false, true)
     SetFeature("rejoinTimer", false, true)
     task.wait(1)
-    pcall(function()
-        game:GetService("TeleportService"):Teleport(game.PlaceId, Player)
+
+    local ts = game:GetService("TeleportService")
+    local ok, err = pcall(function()
+        ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, Player)
     end)
+
+    if not ok then
+        -- Fallback: se o servidor fechou ou a instância não existe mais,
+        -- entra em qualquer servidor do mesmo jogo.
+        warn("[ETW Rejoin] TeleportToPlaceInstance falhou:", err)
+        pcall(function()
+            ts:Teleport(game.PlaceId, Player)
+        end)
+    end
 end
 
 NewFeature("autoRejoin", "Auto Rejoin (Lag)", function()
@@ -1121,7 +1126,7 @@ NewFeature("rejoinTimer", "Auto Rejoin (Tempo)", function()
 end, { onStart = ResetTimerRejoin, onStop = ResetTimerRejoin })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- PRESETS — helpers para aplicar/editar/criar/deletar
+-- PRESETS
 -- ═══════════════════════════════════════════════════════════════════════
 local BASE_PRESETS = { normal = true, static = true }
 
@@ -1130,7 +1135,6 @@ local function SnapshotCurrent()
     for key, ft in pairs(Features) do
         if ft.running then snap.features[key] = true end
     end
-    -- Settings relevantes (para restaurar depois)
     for _, k in ipairs({
         "skipOnSmartSell", "grabTeleportEnabled", "grabWalkFallback",
         "grabBedrockSkipEnabled", "autoOffGrabEnabled", "sizeStuckSkipEnabled",
@@ -1146,17 +1150,13 @@ local function SnapshotCurrent()
 end
 
 local function ApplySnapshot(snap)
-    -- Desliga tudo primeiro
     for key in pairs(Features) do SetFeature(key, false, true, true) end
-    -- Restaura settings
     for k, v in pairs(snap.settings or {}) do S[k] = v end
-    -- Liga features do snapshot
     for key, v in pairs(snap.features or {}) do
         if v and Features[key] then
             SetFeature(key, true, true, true)
         end
     end
-    -- Liga Anti-Void automaticamente (a menos que o preset diga o contrário)
     if S.antiVoidEnabled == nil then S.antiVoidEnabled = true end
     if S.antiVoidEnabled then
         CreateAntiVoid()
@@ -1197,7 +1197,6 @@ local function ApplyPreset(name)
         Z.Notify("Preset", "Farm #1 (parado + SkipOnSmartSell) ativado (+ Anti-Void).", C.Success, 3)
 
     else
-        -- Preset personalizado
         local custom = S.customPresets[name]
         if not custom then
             Z.Notify("Preset", "Preset '" .. tostring(name) .. "' não existe.", C.Danger, 3)
@@ -1210,7 +1209,7 @@ local function ApplyPreset(name)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA: PRESETS (agora com criar/editar/deletar)
+-- ABA: PRESETS
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadPresets()
     Z.Sep("📦  PRESETS BASE")
@@ -1221,42 +1220,22 @@ local function LoadPresets()
     Z.Sep("🛠️  PRESETS PERSONALIZADOS")
     Z.Info("Crie um preset a partir do estado atual (features ligadas + settings).")
 
-    -- Lista dinâmica de presets personalizados
-    local listFrame = Instance.new("Frame")
-    listFrame.Name = "CustomPresetsList"
-    listFrame.Size = UDim2.new(1, 0, 0, 0)
-    listFrame.AutomaticSize = Enum.AutomaticSize.Y
-    listFrame.BackgroundTransparency = 1
-    listFrame.Parent = Z.Content or Z.Scroll or Z.Page or Z.MainFrame or Z.Gui or game:GetService("CoreGui")
-    -- O Zuni Hub deve ter um container; se não, criamos no CoreGui como fallback
-    -- Para segurança, vamos apenas usar botões dinâmicos via Z.Button em loop
-
-    -- Como não sabemos a API exata do Zuni Hub para listas dinâmicas,
-    -- vamos renderizar botões fixos para os presets existentes e um "Criar".
-    local function RefreshCustomList()
-        -- Recria os botões (o Zuni Hub deve limpar/recriar ao trocar de aba)
-        for name, snap in pairs(S.customPresets or {}) do
-            Z.Button("▶  Aplicar: " .. name, C.Accent, function() ApplyPreset(name) end)
-            Z.Button("✏️  Editar: " .. name, C.Warning, function()
-                -- Salva snapshot atual com o mesmo nome
-                S.customPresets[name] = SnapshotCurrent()
-                SaveConfig()
-                Z.Notify("Preset", "Preset '" .. name .. "' atualizado com o estado atual.", C.Success, 2.5)
-            end)
-            Z.Button("🗑️  Deletar: " .. name, C.Danger, function()
-                S.customPresets[name] = nil
-                SaveConfig()
-                Z.Notify("Preset", "Preset '" .. name .. "' deletado.", C.TextDim, 2.5)
-            end)
-        end
+    for name, snap in pairs(S.customPresets or {}) do
+        Z.Button("▶  Aplicar: " .. name, C.Accent, function() ApplyPreset(name) end)
+        Z.Button("✏️  Editar: " .. name, C.Warning, function()
+            S.customPresets[name] = SnapshotCurrent()
+            SaveConfig()
+            Z.Notify("Preset", "Preset '" .. name .. "' atualizado com o estado atual.", C.Success, 2.5)
+        end)
+        Z.Button("🗑️  Deletar: " .. name, C.Danger, function()
+            S.customPresets[name] = nil
+            SaveConfig()
+            Z.Notify("Preset", "Preset '" .. name .. "' deletado.", C.TextDim, 2.5)
+        end)
     end
-
-    -- Renderiza os presets existentes
-    RefreshCustomList()
 
     Z.Sep("➕  CRIAR NOVO PRESET")
     local nameBox
-    -- Se o Zuni Hub tiver TextBox, usa; senão, usa prompt via InputBox (fallback)
     if Z.TextBox then
         nameBox = Z.TextBox("Nome do novo preset", "", "Digite um nome (sem espaços).", function(txt) end)
     elseif Z.Input then
@@ -1273,7 +1252,6 @@ local function LoadPresets()
             name = nameBox.Value
         end
         if not name or name == "" then
-            -- Fallback: pede via InputBox (se executor suportar) ou usa timestamp
             if Z.Prompt then
                 name = Z.Prompt("Nome do preset:", "MeuPreset")
             else
@@ -1292,7 +1270,6 @@ local function LoadPresets()
         S.customPresets[name] = SnapshotCurrent()
         SaveConfig()
         Z.Notify("Preset", "Preset '" .. name .. "' criado a partir do estado atual.", C.Success, 3)
-        -- Tenta atualizar a lista (se a aba for recarregada pelo Zuni Hub)
     end)
 
     Z.Button("🔄  Recarregar lista de presets", C.Accent, function()
@@ -1333,7 +1310,8 @@ local function LoadPresets()
     Z.Info("Normal Farm: Grab + Eat + Smart Sell + Rewards + Unstuck + Auto Walk + Teleporte após falha + Anti-Void.\n" ..
            "Farm #1: parado, com SkipOnSmartSell + Anti-Void.\n" ..
            "Presets personalizados: snapshot do estado atual (features + settings + Anti-Void).\n" ..
-           "Anti-Void: Part gigante na Bedrock para evitar queda no void.")
+           "Anti-Void: Part gigante na Bedrock para evitar queda no void.\n" ..
+           "Rejoin: TeleportToPlaceInstance (mesmo servidor) com fallback para Teleport.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1733,6 +1711,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadAutoRejoin()
     Z.Sep("🔄  AUTO REJOIN (LAG)")
+    Z.Info("Rejoin usa TeleportToPlaceInstance (mesmo servidor). Se o servidor fechou, cai no Teleport (qualquer servidor).")
 
     Z.Toggle("Ativar Auto Rejoin (Lag)", S.autoRejoinEnabled, function(v) 
         S.autoRejoinEnabled = v 
@@ -1751,7 +1730,7 @@ local function LoadAutoRejoin()
     
     UI.rejoinTimer = Z.Toggle("Auto Rejoin (Tempo)", Features.rejoinTimer.running, function(v)
         SetFeature("rejoinTimer", v, true)
-    end, "Reconecta após um tempo fixo, independente do lag.")
+    end, "Reconecta após um tempo fixo, independente do lag. Mesmo servidor.")
 
     Z.Slider("Reconectar a cada (minutos)", 1, 120, math.floor(S.autoRejoinTimeInterval / 60), function(v) 
         S.autoRejoinTimeInterval = v * 60
@@ -1827,5 +1806,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v13.0 (Anti-Void + Presets editáveis) carregado!", C.Success, 3)
-print("⚡ ETW Module v13.0 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v13.1 (Rejoin no mesmo servidor) carregado!", C.Success, 3)
+print("⚡ ETW Module v13.1 iniciado")
