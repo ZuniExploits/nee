@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v12.2 - EDICÃO LEVE + SALVAMENTO            ║
--- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Auto Upgrade c/ saldo  ║
+-- ║  ZUNI HUB - ETW MODULE v13.0 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  Anti-Void • Presets Editáveis • Auto Upgrade c/ saldo             ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -96,6 +96,15 @@ Def("autoRejoinTime", 60)
 -- Auto Rejoin (Tempo Fixo)
 Def("autoRejoinTimeInterval", 1800)
 
+-- Anti-Void
+Def("antiVoidEnabled", true)      -- liga junto com presets
+Def("antiVoidPartName", "ZuniAntiVoid")
+Def("antiVoidThickness", 5)
+Def("antiVoidSize", 4000)
+
+-- Presets personalizados: { [nome] = { features = {...}, settings = {...} } }
+Def("customPresets", {})
+
 -- Estado das Features (para salvar)
 Def("ActiveFeatures", {})
 
@@ -106,7 +115,8 @@ local function SaveConfig()
     if not writefile then return end
     local saveData = {
         settings = S,
-        activeFeatures = S.ActiveFeatures
+        activeFeatures = S.ActiveFeatures,
+        customPresets = S.customPresets,
     }
     local ok, json = pcall(function() return HttpService:JSONEncode(saveData) end)
     if ok then
@@ -122,6 +132,7 @@ local function LoadConfig()
     if ok2 and type(data) == "table" then
         for k, v in pairs(data.settings or {}) do S[k] = v end
         S.ActiveFeatures = data.activeFeatures or {}
+        S.customPresets = data.customPresets or {}
     end
 end
 
@@ -242,6 +253,176 @@ local function TeleportToPlatform()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
+-- CUBES — espelho local (igual ao script Cubes.Cubes)
+-- ═══════════════════════════════════════════════════════════════════════
+local cubesState = { value = nil, lastUpdate = 0 }
+
+local function UpdateCubesFromEvent(newValue)
+    if type(newValue) == "number" then
+        cubesState.value = newValue
+        cubesState.lastUpdate = tick()
+    end
+end
+
+do
+    local evs = RS:FindFirstChild("Events")
+    local setCubes = evs and evs:FindFirstChild("SetCubes")
+    if setCubes and setCubes:IsA("RemoteEvent") then
+        local conn = setCubes.OnClientEvent:Connect(function(v)
+            UpdateCubesFromEvent(v)
+        end)
+        if Z.Track then Z.Track(conn) end
+    end
+end
+
+do
+    local evs = RS:FindFirstChild("Events")
+    local cubesAdded = evs and evs:FindFirstChild("CubesAdded")
+    if cubesAdded and cubesAdded:IsA("RemoteEvent") then
+        local conn = cubesAdded.OnClientEvent:Connect(function(amount, newTotal)
+            if type(amount) == "number" and amount < 0 and type(newTotal) == "number" then
+                UpdateCubesFromEvent(newTotal)
+            elseif cubesState.value ~= nil and type(amount) == "number" then
+                UpdateCubesFromEvent(cubesState.value + amount)
+            end
+        end)
+        if Z.Track then Z.Track(conn) end
+    end
+end
+
+task.spawn(function()
+    task.wait(2)
+    local evs = RS:FindFirstChild("Events")
+    local setCubes = evs and evs:FindFirstChild("SetCubes")
+    if setCubes and setCubes:IsA("RemoteEvent") then
+        pcall(function() setCubes:FireServer() end)
+    end
+end)
+
+local function GetCubes()
+    if cubesState.value ~= nil then
+        return cubesState.value
+    end
+    local pg = Player:FindFirstChild("PlayerGui")
+    local sg = pg and pg:FindFirstChild("ScreenGui")
+    local cubesGui = sg and sg:FindFirstChild("Cubes")
+    if cubesGui then
+        local counterFrame = cubesGui:FindFirstChild("CounterFrame")
+        local textLabel = counterFrame and counterFrame:FindFirstChild("TextLabel")
+        if textLabel and textLabel:IsA("TextLabel") then
+            local txt = textLabel.Text:gsub(",", "")
+            local n = tonumber(txt)
+            if n then return n end
+        end
+    end
+    local cubes = Player:FindFirstChild("Cubes")
+    if cubes and (cubes:IsA("NumberValue") or cubes:IsA("IntValue")) then
+        return cubes.Value
+    end
+    return nil
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ANTI-VOID
+-- ═══════════════════════════════════════════════════════════════════════
+-- Cria uma Part gigante na posição de workspace.Map.Bedrock (ou fallback)
+-- para o player não cair no void.
+local antiVoidPart = nil
+
+local function FindBedrockBase()
+    local map = workspace:FindFirstChild("Map")
+    if map then
+        local bed = map:FindFirstChild("Bedrock")
+        if bed then
+            -- Pode ser um Model, Part, etc. Se for Model, pega a PrimaryPart ou a primeira BasePart
+            if bed:IsA("BasePart") then return bed end
+            if bed:IsA("Model") then
+                if bed.PrimaryPart then return bed.PrimaryPart end
+                for _, d in ipairs(bed:GetDescendants()) do
+                    if d:IsA("BasePart") then return d end
+                end
+            end
+        end
+    end
+    -- Fallback: procura qualquer Part chamada "Bedrock" na workspace
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("BasePart") and d.Name == "Bedrock" then
+            return d
+        end
+    end
+    return nil
+end
+
+local function CreateAntiVoid()
+    if antiVoidPart and antiVoidPart.Parent then
+        return antiVoidPart
+    end
+
+    local base = FindBedrockBase()
+    local center, size
+    if base then
+        center = base.Position
+        size = Vector3.new(S.antiVoidSize, S.antiVoidThickness, S.antiVoidSize)
+    else
+        -- Fallback: usa a posição do HRP se existir
+        local hrp = GetHRP()
+        if hrp then
+            center = Vector3.new(hrp.Position.X, hrp.Position.Y - 50, hrp.Position.Z)
+            size = Vector3.new(S.antiVoidSize, S.antiVoidThickness, S.antiVoidSize)
+        else
+            center = Vector3.new(0, -50, 0)
+            size = Vector3.new(S.antiVoidSize, S.antiVoidThickness, S.antiVoidSize)
+        end
+    end
+
+    local part = Instance.new("Part")
+    part.Name = S.antiVoidPartName
+    part.Anchored = true
+    part.CanCollide = true
+    part.Size = size
+    part.Position = center
+    part.Transparency = 1
+    part.Material = Enum.Material.SmoothPlastic
+    part.Color = Color3.fromRGB(0, 0, 0)
+    part.CanQuery = true
+    part.CanTouch = false
+
+    -- Tenta parentar em Map se existir, senão na workspace
+    local map = workspace:FindFirstChild("Map")
+    part.Parent = map or workspace
+
+    antiVoidPart = part
+    return part
+end
+
+local function DestroyAntiVoid()
+    if antiVoidPart and antiVoidPart.Parent then
+        antiVoidPart:Destroy()
+    end
+    antiVoidPart = nil
+end
+
+local function SetAntiVoidEnabled(v)
+    S.antiVoidEnabled = v
+    if v then
+        CreateAntiVoid()
+        Z.Notify("Anti-Void", "Ativado (Part gigante na Bedrock).", C.Success, 2)
+    else
+        DestroyAntiVoid()
+        Z.Notify("Anti-Void", "Desativado.", C.TextDim, 2)
+    end
+    SaveConfig()
+end
+
+-- Cria automaticamente se estiver ligado ao carregar
+task.spawn(function()
+    task.wait(3)
+    if S.antiVoidEnabled then
+        CreateAntiVoid()
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- AUTO UPGRADES — helpers
 -- ═══════════════════════════════════════════════════════════════════════
 local ItemInfo = nil
@@ -280,30 +461,6 @@ local function GetUpgradePrice(name)
     if currentLevel == nil then return nil end
     local ok, price = pcall(function() return info.Upgrades[name].priceFunction(currentLevel + 1) end)
     if ok then return price end
-    return nil
-end
-
-local function GetCubes()
-    local cubes = Player:FindFirstChild("Cubes")
-    if cubes and (cubes:IsA("NumberValue") or cubes:IsA("IntValue")) then
-        return cubes.Value
-    end
-    local stats = Player:FindFirstChild("Stats")
-    if stats then
-        local c = stats:FindFirstChild("Cubes")
-        if c and (c:IsA("NumberValue") or c:IsA("IntValue")) then return c.Value end
-    end
-    local pg = Player:FindFirstChild("PlayerGui")
-    local sg = pg and pg:FindFirstChild("ScreenGui")
-    local shop = sg and sg:FindFirstChild("Shop")
-    local cubeFrame = shop and shop:FindFirstChild("CubeFrame")
-    local counterFrame = cubeFrame and cubeFrame:FindFirstChild("CounterFrame")
-    local cubesLabel = counterFrame and counterFrame:FindFirstChild("Cubes")
-    if cubesLabel and cubesLabel:IsA("TextLabel") then
-        local txt = cubesLabel.Text:gsub(",", "")
-        local n = tonumber(txt)
-        if n then return n end
-    end
     return nil
 end
 
@@ -815,7 +972,7 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES (v12.2 — NÃO cego: só compra se tiver saldo)
+-- AUTO UPGRADES (v13.0 — não cego, com saldo via espelho)
 -- ═══════════════════════════════════════════════════════════════════════
 local autoUpgState = { lastCanBuy = nil }
 
@@ -826,7 +983,6 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
         return 2
     end
 
-    -- 1. Confirma que o upgrade existe
     local upgrades = Player:FindFirstChild("Upgrades")
     if not upgrades then
         autoUpgState.lastCanBuy = nil
@@ -838,11 +994,9 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
         return 5
     end
 
-    -- 2. Calcula preço e saldo
     local price = GetUpgradePrice(selectedName)
     local cubes = GetCubes()
 
-    -- 3. Se não conseguiu ler preço ou saldo, NÃO dispara (seguro)
     if price == nil or cubes == nil then
         if autoUpgState.lastCanBuy ~= false then
             autoUpgState.lastCanBuy = false
@@ -853,7 +1007,6 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
         return 5
     end
 
-    -- 4. Só dispara se tiver saldo suficiente
     if cubes < price then
         if autoUpgState.lastCanBuy ~= false then
             autoUpgState.lastCanBuy = false
@@ -865,7 +1018,6 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
         return 5
     end
 
-    -- 5. Saldo OK — dispara
     autoUpgState.lastCanBuy = true
 
     local purchaseEvent = GetPurchaseEvent()
@@ -969,75 +1121,219 @@ NewFeature("rejoinTimer", "Auto Rejoin (Tempo)", function()
 end, { onStart = ResetTimerRejoin, onStop = ResetTimerRejoin })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- PRESETS
+-- PRESETS — helpers para aplicar/editar/criar/deletar
 -- ═══════════════════════════════════════════════════════════════════════
-local function ApplyPreset(name)
-    for key in pairs(Features) do SetFeature(key, false, true, true) end
-    grabState.failSince = nil; grabState.stuckSince = nil; grabState.lastPos = nil
-    grabCooldown.until_ = 0; grabTried = false; grabSucceeded = false
-    ResetAutoOff(); ResetSizeStuck(); StopTempWalk()
+local BASE_PRESETS = { normal = true, static = true }
 
+local function SnapshotCurrent()
+    local snap = { features = {}, settings = {} }
+    for key, ft in pairs(Features) do
+        if ft.running then snap.features[key] = true end
+    end
+    -- Settings relevantes (para restaurar depois)
+    for _, k in ipairs({
+        "skipOnSmartSell", "grabTeleportEnabled", "grabWalkFallback",
+        "grabBedrockSkipEnabled", "autoOffGrabEnabled", "sizeStuckSkipEnabled",
+        "skipTimerEnabled", "skipStuckEnabled", "autoPauseAfterSkip",
+        "walkSpeed", "walkRadius", "grabFailTeleportDelay", "grabFailCooldown",
+        "sizeStuckThreshold", "sizeStuckRepauseDelay", "autoPauseDelay",
+        "eatInterval", "throwInterval", "sellTimerInterval", "smartSellThreshold",
+        "skipInterval", "skipStuckTime", "antiVoidEnabled",
+    }) do
+        snap.settings[k] = S[k]
+    end
+    return snap
+end
+
+local function ApplySnapshot(snap)
+    -- Desliga tudo primeiro
+    for key in pairs(Features) do SetFeature(key, false, true, true) end
+    -- Restaura settings
+    for k, v in pairs(snap.settings or {}) do S[k] = v end
+    -- Liga features do snapshot
+    for key, v in pairs(snap.features or {}) do
+        if v and Features[key] then
+            SetFeature(key, true, true, true)
+        end
+    end
+    -- Liga Anti-Void automaticamente (a menos que o preset diga o contrário)
+    if S.antiVoidEnabled == nil then S.antiVoidEnabled = true end
+    if S.antiVoidEnabled then
+        CreateAntiVoid()
+    else
+        DestroyAntiVoid()
+    end
+end
+
+local function ApplyPreset(name)
     if name == "normal" then
-        SetFeature("grab", true, true, true)
-        SetFeature("eat", true, true, true)
-        SetFeature("smartSell", true, true, true)
-        SetFeature("rewards", true, true, true)
-        SetFeature("sizeStuckSkip", true, true, true)
-        SetFeature("walk", true, true, true)
-        S.skipOnSmartSell = false
-        S.grabTeleportEnabled = true
-        S.grabWalkFallback = true
-        S.grabBedrockSkipEnabled = true
-        S.autoOffGrabEnabled = true
-        S.sizeStuckSkipEnabled = true
-        S.skipTimerEnabled = false
-        S.skipStuckEnabled = false
-        S.autoPauseAfterSkip = true
-        S.walkSpeed = 30
-        S.walkRadius = 40
-        S.grabFailTeleportDelay = 3.0
-        S.grabFailCooldown = 3.0
-        S.sizeStuckThreshold = 10.0
-        S.sizeStuckRepauseDelay = 5.0
-        S.autoPauseDelay = 5
-        Z.Notify("Preset", "Normal Farm ativado.", C.Success, 3)
+        local snap = {
+            features = { grab = true, eat = true, smartSell = true, rewards = true, sizeStuckSkip = true, walk = true },
+            settings = {
+                skipOnSmartSell = false, grabTeleportEnabled = true, grabWalkFallback = true,
+                grabBedrockSkipEnabled = true, autoOffGrabEnabled = true, sizeStuckSkipEnabled = true,
+                skipTimerEnabled = false, skipStuckEnabled = false, autoPauseAfterSkip = true,
+                walkSpeed = 30, walkRadius = 40, grabFailTeleportDelay = 3.0, grabFailCooldown = 3.0,
+                sizeStuckThreshold = 10.0, sizeStuckRepauseDelay = 5.0, autoPauseDelay = 5,
+                antiVoidEnabled = true,
+            }
+        }
+        ApplySnapshot(snap)
+        Z.Notify("Preset", "Normal Farm ativado (+ Anti-Void).", C.Success, 3)
 
     elseif name == "static" then
-        SetFeature("grab", true, true, true)
-        SetFeature("eat", true, true, true)
-        SetFeature("smartSell", true, true, true)
-        SetFeature("rewards", true, true, true)
-        SetFeature("sizeStuckSkip", true, true, true)
-        SetFeature("walk", false, true, true)
-        S.skipOnSmartSell = true
-        S.grabTeleportEnabled = true
-        S.grabWalkFallback = false
-        S.grabBedrockSkipEnabled = true
-        S.autoOffGrabEnabled = true
-        S.sizeStuckSkipEnabled = true
-        S.skipTimerEnabled = false
-        S.skipStuckEnabled = false
-        S.autoPauseAfterSkip = true
-        S.walkSpeed = 16
-        S.walkRadius = 40
-        S.grabFailTeleportDelay = 3.0
-        S.grabFailCooldown = 3.0
-        S.sizeStuckThreshold = 10.0
-        S.sizeStuckRepauseDelay = 5.0
-        S.autoPauseDelay = 5
-        Z.Notify("Preset", "Farm #1 (parado + SkipOnSmartSell) ativado.", C.Success, 3)
+        local snap = {
+            features = { grab = true, eat = true, smartSell = true, rewards = true, sizeStuckSkip = true, walk = false },
+            settings = {
+                skipOnSmartSell = true, grabTeleportEnabled = true, grabWalkFallback = false,
+                grabBedrockSkipEnabled = true, autoOffGrabEnabled = true, sizeStuckSkipEnabled = true,
+                skipTimerEnabled = false, skipStuckEnabled = false, autoPauseAfterSkip = true,
+                walkSpeed = 16, walkRadius = 40, grabFailTeleportDelay = 3.0, grabFailCooldown = 3.0,
+                sizeStuckThreshold = 10.0, sizeStuckRepauseDelay = 5.0, autoPauseDelay = 5,
+                antiVoidEnabled = true,
+            }
+        }
+        ApplySnapshot(snap)
+        Z.Notify("Preset", "Farm #1 (parado + SkipOnSmartSell) ativado (+ Anti-Void).", C.Success, 3)
+
+    else
+        -- Preset personalizado
+        local custom = S.customPresets[name]
+        if not custom then
+            Z.Notify("Preset", "Preset '" .. tostring(name) .. "' não existe.", C.Danger, 3)
+            return
+        end
+        ApplySnapshot(custom)
+        Z.Notify("Preset", "Preset '" .. name .. "' ativado (+ Anti-Void).", C.Success, 3)
     end
     SaveConfig()
 end
 
+-- ═══════════════════════════════════════════════════════════════════════
+-- ABA: PRESETS (agora com criar/editar/deletar)
+-- ═══════════════════════════════════════════════════════════════════════
 local function LoadPresets()
-    Z.Sep("📦  PRESETS")
-    Z.Info("Aplica uma combinação pronta. Você pode ajustar depois nas abas.")
+    Z.Sep("📦  PRESETS BASE")
+    Z.Info("Os dois presets base não podem ser editados nem deletados.")
     Z.Button("🌾  Normal Farm (andando)", C.Success, function() ApplyPreset("normal") end)
     Z.Button("🧱  Farm #1 (parado + SkipOnSmartSell)", C.Accent, function() ApplyPreset("static") end)
+
+    Z.Sep("🛠️  PRESETS PERSONALIZADOS")
+    Z.Info("Crie um preset a partir do estado atual (features ligadas + settings).")
+
+    -- Lista dinâmica de presets personalizados
+    local listFrame = Instance.new("Frame")
+    listFrame.Name = "CustomPresetsList"
+    listFrame.Size = UDim2.new(1, 0, 0, 0)
+    listFrame.AutomaticSize = Enum.AutomaticSize.Y
+    listFrame.BackgroundTransparency = 1
+    listFrame.Parent = Z.Content or Z.Scroll or Z.Page or Z.MainFrame or Z.Gui or game:GetService("CoreGui")
+    -- O Zuni Hub deve ter um container; se não, criamos no CoreGui como fallback
+    -- Para segurança, vamos apenas usar botões dinâmicos via Z.Button em loop
+
+    -- Como não sabemos a API exata do Zuni Hub para listas dinâmicas,
+    -- vamos renderizar botões fixos para os presets existentes e um "Criar".
+    local function RefreshCustomList()
+        -- Recria os botões (o Zuni Hub deve limpar/recriar ao trocar de aba)
+        for name, snap in pairs(S.customPresets or {}) do
+            Z.Button("▶  Aplicar: " .. name, C.Accent, function() ApplyPreset(name) end)
+            Z.Button("✏️  Editar: " .. name, C.Warning, function()
+                -- Salva snapshot atual com o mesmo nome
+                S.customPresets[name] = SnapshotCurrent()
+                SaveConfig()
+                Z.Notify("Preset", "Preset '" .. name .. "' atualizado com o estado atual.", C.Success, 2.5)
+            end)
+            Z.Button("🗑️  Deletar: " .. name, C.Danger, function()
+                S.customPresets[name] = nil
+                SaveConfig()
+                Z.Notify("Preset", "Preset '" .. name .. "' deletado.", C.TextDim, 2.5)
+            end)
+        end
+    end
+
+    -- Renderiza os presets existentes
+    RefreshCustomList()
+
+    Z.Sep("➕  CRIAR NOVO PRESET")
+    local nameBox
+    -- Se o Zuni Hub tiver TextBox, usa; senão, usa prompt via InputBox (fallback)
+    if Z.TextBox then
+        nameBox = Z.TextBox("Nome do novo preset", "", "Digite um nome (sem espaços).", function(txt) end)
+    elseif Z.Input then
+        nameBox = Z.Input("Nome do novo preset", "", "Digite um nome (sem espaços).")
+    else
+        Z.Info("⚠ Zuni Hub não expõe TextBox. Use o botão abaixo que pede via prompt.")
+    end
+
+    Z.Button("💾  Criar preset com estado atual", C.Success, function()
+        local name
+        if nameBox and type(nameBox.Get) == "function" then
+            name = nameBox.Get()
+        elseif nameBox and type(nameBox.Value) == "string" then
+            name = nameBox.Value
+        end
+        if not name or name == "" then
+            -- Fallback: pede via InputBox (se executor suportar) ou usa timestamp
+            if Z.Prompt then
+                name = Z.Prompt("Nome do preset:", "MeuPreset")
+            else
+                name = "Preset_" .. tostring(os.time())
+            end
+        end
+        name = tostring(name):gsub("%s+", "_")
+        if name == "" then
+            Z.Notify("Preset", "Nome inválido.", C.Danger, 2)
+            return
+        end
+        if BASE_PRESETS[name] then
+            Z.Notify("Preset", "Não pode sobrescrever preset base.", C.Danger, 2)
+            return
+        end
+        S.customPresets[name] = SnapshotCurrent()
+        SaveConfig()
+        Z.Notify("Preset", "Preset '" .. name .. "' criado a partir do estado atual.", C.Success, 3)
+        -- Tenta atualizar a lista (se a aba for recarregada pelo Zuni Hub)
+    end)
+
+    Z.Button("🔄  Recarregar lista de presets", C.Accent, function()
+        Z.Notify("Preset", "Recarregue a aba (troque e volte) para ver a lista atualizada.", C.TextDim, 3)
+    end)
+
+    Z.Sep("🛡️  ANTI-VOID")
+    Z.Toggle("Anti-Void ativo", S.antiVoidEnabled, function(v)
+        SetAntiVoidEnabled(v)
+    end, "Cria uma Part gigante na posição de workspace.Map.Bedrock (ou fallback) para o player não cair no void.")
+    Z.Slider("Tamanho do Anti-Void", 1000, 10000, S.antiVoidSize, function(v)
+        S.antiVoidSize = v
+        if antiVoidPart and antiVoidPart.Parent then
+            antiVoidPart.Size = Vector3.new(v, S.antiVoidThickness, v)
+        end
+        SaveConfig()
+    end, { step = 500, suffix = " studs" })
+    Z.Slider("Espessura do Anti-Void", 1, 20, S.antiVoidThickness, function(v)
+        S.antiVoidThickness = v
+        if antiVoidPart and antiVoidPart.Parent then
+            antiVoidPart.Size = Vector3.new(S.antiVoidSize, v, S.antiVoidSize)
+        end
+        SaveConfig()
+    end, { step = 1, suffix = " studs" })
+    Z.Button("🧱  Recriar Anti-Void agora", C.Accent, function()
+        DestroyAntiVoid()
+        CreateAntiVoid()
+        Z.Notify("Anti-Void", "Part recriada na posição da Bedrock.", C.Success, 2)
+    end)
+    Z.Button("❌  Destruir Anti-Void agora", C.Danger, function()
+        DestroyAntiVoid()
+        S.antiVoidEnabled = false
+        SaveConfig()
+        Z.Notify("Anti-Void", "Part destruída.", C.TextDim, 2)
+    end)
+
     Z.Sep("ℹ️  SOBRE")
-    Z.Info("Normal Farm: Grab + Eat + Smart Sell + Rewards + Unstuck + Auto Walk + Teleporte após falha.\n" ..
-           "Farm #1: parado, com SkipOnSmartSell (pula o mapa após cada Smart Sell).")
+    Z.Info("Normal Farm: Grab + Eat + Smart Sell + Rewards + Unstuck + Auto Walk + Teleporte após falha + Anti-Void.\n" ..
+           "Farm #1: parado, com SkipOnSmartSell + Anti-Void.\n" ..
+           "Presets personalizados: snapshot do estado atual (features + settings + Anti-Void).\n" ..
+           "Anti-Void: Part gigante na Bedrock para evitar queda no void.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1071,7 +1367,8 @@ local function LoadMain()
     local stReward = Z.Stat("Próxima reward", "—")
     local stActive = Z.Stat("Funções ativas", "0")
     local stSizeStuck = Z.Stat("Size parado há", "—")
-    local stCubes  = Z.Stat("Cubes", "—")
+    local stCubes  = Z.Stat("Cubes (espelho)", "—")
+    local stAnti   = Z.Stat("Anti-Void", "—")
     Z.PageLoop(0.5, function()
         pcall(function()
             local sz = GetSize()
@@ -1100,6 +1397,8 @@ local function LoadMain()
             end
             local cubes = GetCubes()
             stCubes.Set(cubes and tostring(cubes) or "—", cubes and C.Accent or C.TextDim)
+            stAnti.Set(antiVoidPart and antiVoidPart.Parent and "Ativa" or "—",
+                antiVoidPart and antiVoidPart.Parent and C.Success or C.TextDim)
         end)
     end)
 
@@ -1303,11 +1602,11 @@ local function LoadUnstuck()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA: AUTO UPGRADES (v12.2)
+-- ABA: AUTO UPGRADES
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadAutoUpgrades()
     Z.Sep("⚡  AUTO UPGRADES")
-    Z.Info("NÃO é mais cego: só compra se o saldo de Cubes cobrir o preço do próximo nível. Se não conseguir ler preço ou saldo, não dispara.")
+    Z.Info("NÃO é cego: só compra se o saldo de Cubes (espelhado via SetCubes/CubesAdded) cobrir o preço do próximo nível.")
 
     local options = {}
     local upgradesFolder = Player:FindFirstChild("Upgrades")
@@ -1353,7 +1652,7 @@ local function LoadAutoUpgrades()
     local stUpgName  = Z.Stat("Upgrade (interno)", "—")
     local stUpgLevel = Z.Stat("Nível", "—")
     local stUpgPrice = Z.Stat("Preço próximo", "—")
-    local stCubes    = Z.Stat("Cubes", "—")
+    local stCubes    = Z.Stat("Cubes (espelho)", "—")
     local stCanBuy   = Z.Stat("Pode comprar?", "—")
     local stLoop     = Z.Stat("Loop ativo?", "—")
     Z.PageLoop(0.5, function()
@@ -1426,7 +1725,7 @@ local function LoadAutoUpgrades()
         end
     end)
 
-    Z.Info("⚠ O nome enviado é o mesmo child.Name de LocalPlayer.Upgrades. A compra só é enviada se cubes >= price.")
+    Z.Info("💡 O saldo é espelhado via SetCubes/CubesAdded (igual ao script Cubes.Cubes), então não depende da UI estar funcionando.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1528,5 +1827,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v12.2 (Auto Upgrade c/ saldo, não cego) carregado!", C.Success, 3)
-print("⚡ ETW Module v12.2 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v13.0 (Anti-Void + Presets editáveis) carregado!", C.Success, 3)
+print("⚡ ETW Module v13.0 iniciado")
