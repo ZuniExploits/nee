@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v11.5 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  ZUNI HUB - ETW MODULE v11.6 - EDICÃO LEVE + SALVAMENTO            ║
 -- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Limpeza Total          ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -95,7 +95,6 @@ Def("autoRejoinFpsLimit", 20)
 Def("autoRejoinTime", 60)
 
 -- Auto Rejoin (Tempo Fixo)
-Def("autoRejoinTimeEnabled", false)
 Def("autoRejoinTimeInterval", 1800) -- 30 min padrão (em segundos)
 
 -- Estado das Features (para salvar)
@@ -863,8 +862,6 @@ local function ResetTimerRejoin()
 end
 
 NewFeature("rejoinTimer", "Auto Rejoin (Tempo)", function()
-    if not S.autoRejoinTimeEnabled then return 1 end
-    
     if rejoinTimerState.startedAt == 0 then
         rejoinTimerState.startedAt = tick()
     end
@@ -1279,14 +1276,12 @@ local function LoadAutoRejoin()
     end, { suffix = " s" })
 
     Z.Sep("⏱️  REJOIN POR TEMPO (FIXO)")
-
-    -- ÚNICO toggle que liga/desliga o rejoin por tempo e a permissão
-    UI.rejoinTimer = Z.Toggle("Ativar Rejoin por Tempo", S.autoRejoinTimeEnabled, function(v)
-        S.autoRejoinTimeEnabled = v
-        SetFeature("rejoinTimer", v, true)
-        SaveConfig()
-    end, "Reconecta após um tempo fixo, independente do lag.")
     
+    -- Único toggle que liga o Rejoin por Tempo
+    UI.rejoinTimer = Z.Toggle("Auto Rejoin (Tempo)", Features.rejoinTimer.running, function(v)
+        SetFeature("rejoinTimer", v, true)
+    end, "Reconecta após um tempo fixo, independente do lag.")
+
     Z.Slider("Reconectar a cada (minutos)", 1, 120, math.floor(S.autoRejoinTimeInterval / 60), function(v) 
         S.autoRejoinTimeInterval = v * 60 -- Converte de volta para segundos
         if Features.rejoinTimer and Features.rejoinTimer.running then
@@ -1361,5 +1356,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v11.5 (Tempo + Lag) carregado!", C.Success, 3)
-print("⚡ ETW Module v11.5 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v11.6 (Tempo + Lag) carregado!", C.Success, 3)
+print("⚡ ETW Module v11.6 iniciado")
