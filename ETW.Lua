@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v9.1                                        ║
--- ║  Aba Chunk • Grab/Eat 50ms • Falha 3s • Bedrock • Auto-Off         ║
+-- ║  ZUNI HUB - ETW MODULE v9.2                                        ║
+-- ║  Aba Misc (Status + Auto-Off) • Chunk • Main • Presets             ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -673,7 +673,7 @@ local function ApplyPreset(name)
         Z.Notify("Preset", "Farm #1 (parado + SkipOnSmartSell) ativado.", C.Success, 3)
     end
 
-    if Z.CurrentTab == "Main" or Z.CurrentTab == "Chunk" then
+    if Z.CurrentTab == "Main" or Z.CurrentTab == "Chunk" or Z.CurrentTab == "Misc" then
         for key, ui in pairs(UI) do
             if ui and ui.Set and Features[key] then
                 pcall(function() ui.Set(Features[key].running, true) end)
@@ -684,7 +684,7 @@ end
 
 local function LoadPresets()
     Z.Sep("📦  PRESETS")
-    Z.Info("Aplica uma combinação pronta. Você pode ajustar depois nas abas Main e Chunk.")
+    Z.Info("Aplica uma combinação pronta. Você pode ajustar depois nas abas Main, Chunk e Misc.")
     Z.Button("🌾  Normal Farm (andando)", C.Success, function() ApplyPreset("normal") end)
     Z.Button("🧱  Farm #1 (parado + SkipOnSmartSell)", C.Accent, function() ApplyPreset("static") end)
     Z.Sep("ℹ️  SOBRE")
@@ -693,7 +693,7 @@ local function LoadPresets()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA MAIN (Status, Mapa, Extras, Walk)
+-- ABA MAIN (Foco em controles gerais e Mapa)
 -- ═══════════════════════════════════════════════════════════════════════
 local function FeatureToggle(key, name, desc)
     UI[key] = Z.Toggle(name, Features[key].running, function(v) SetFeature(key, v, true) end, desc)
@@ -713,42 +713,6 @@ local function NextRewardIn()
 end
 
 local function LoadMain()
-    Z.Sep("📊  STATUS")
-    local stSize   = Z.Stat("Tamanho", "—")
-    local stChunk  = Z.Stat("Chunk", "—")
-    local stBed    = Z.Stat("Bedrock", "—")
-    local stFail   = Z.Stat("Sem conseguir pegar há", "—")
-    local stCd     = Z.Stat("Cooldown do grab", "—")
-    local stHrp    = Z.Stat("HRP ancorado", "—")
-    local stMap    = Z.Stat("Mapa", "—")
-    local stReward = Z.Stat("Próxima reward", "—")
-    local stActive = Z.Stat("Funções ativas", "0")
-    Z.PageLoop(0.5, function()
-        pcall(function()
-            local sz = GetSize()
-            stSize.Set(sz and tostring(sz) or "—")
-            local has = HasChunk()
-            stChunk.Set(has and "Sim" or "Não", has and C.Success or C.TextDim)
-            local bed = IsOnBedrock()
-            stBed.Set(bed and "Sim" or "Não", bed and C.Warning or C.TextDim)
-            local fs = grabState.failSince
-            stFail.Set(fs and (math.floor(tick() - fs) .. " s") or "—", fs and C.Warning or C.TextDim)
-            local cd = grabCooldown.until_ - tick()
-            stCd.Set(cd > 0 and (string.format("%.1f s", cd)) or "—", cd > 0 and C.Warning or C.TextDim)
-            local anch = IsHRPAnchored()
-            stHrp.Set(anch and "Sim" or "Não", anch and C.Danger or C.Success)
-            local ss = GetServerSettings()
-            local paused = ss and ss:FindFirstChild("Paused")
-            if paused then stMap.Set(paused.Value and "Pausado" or "Rodando", paused.Value and C.Danger or C.Success) end
-            local nr = NextRewardIn()
-            if nr == nil then stReward.Set("—")
-            elseif nr <= 0 then stReward.Set("Pronta!", C.Success)
-            else stReward.Set(Fmt(nr)) end
-            local n = CountActive()
-            stActive.Set(tostring(n), n > 0 and C.Success or C.TextDim)
-        end)
-    end)
-
     Z.Sep("🎛️  CONTROLES RÁPIDOS")
     Z.Button("▶  Ativar farm completo (Grab + Eat + Smart Sell + Rewards)", C.Success, function()
         for _, k in ipairs({ "grab", "eat", "smartSell", "rewards" }) do SetFeature(k, true, true) end
@@ -808,7 +772,7 @@ local function LoadMain()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA CHUNK (Grab, Eat, Sell, Tempos, Bedrock)
+-- ABA CHUNK (Grab, Eat, Sell e Tempos)
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadChunk()
     Z.Sep("🌾  COLETA — AUTO GRAB")
@@ -840,17 +804,6 @@ local function LoadChunk()
     FeatureToggle("eat", "Auto Eat", "Come automaticamente se tiver um chunk.")
     Z.Info("O Eat roda a cada 50ms, mas só dispara se você TIVER um chunk na mão.")
 
-    Z.Sep("⏸️  AUTO-OFF DO GRAB")
-    Z.Toggle("Desligar grab se parado e sem crescer", S.autoOffGrabEnabled, function(v)
-        S.autoOffGrabEnabled = v
-        if not v then ResetAutoOff() end
-    end, "Desliga o Auto Grab quando o jogador fica parado e o tamanho não cresce")
-    
-    Z.Slider("Tempo sem crescer + parado", 1, 30, S.autoOffGrabThreshold, function(v)
-        S.autoOffGrabThreshold = v
-    end, { step = 0.5, suffix = " s" })
-    Z.Info("Quando o Grab é desligado por esse motivo, ele só religa sozinho quando o HRP do jogador desancorar.")
-
     Z.Sep("⏭  SKIP MAP (SEM CHUNK)")
     FeatureToggle("skipStuck", "Skip Map (Sem Chunk)", "Pula se tentar pegar e não conseguir por X s")
     Z.Slider("Tempo sem pegar chunk", 3, 120, S.skipStuckTime, function(v) S.skipStuckTime = v end, { suffix = " s" })
@@ -868,10 +821,63 @@ local function LoadChunk()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
+-- ABA MISC (Status e Auto-Off do Grab)
+-- ═══════════════════════════════════════════════════════════════════════
+local function LoadMisc()
+    Z.Sep("📊  STATUS")
+    local stSize   = Z.Stat("Tamanho", "—")
+    local stChunk  = Z.Stat("Chunk", "—")
+    local stBed    = Z.Stat("Bedrock", "—")
+    local stFail   = Z.Stat("Sem conseguir pegar há", "—")
+    local stCd     = Z.Stat("Cooldown do grab", "—")
+    local stHrp    = Z.Stat("HRP ancorado", "—")
+    local stMap    = Z.Stat("Mapa", "—")
+    local stReward = Z.Stat("Próxima reward", "—")
+    local stActive = Z.Stat("Funções ativas", "0")
+    Z.PageLoop(0.5, function()
+        pcall(function()
+            local sz = GetSize()
+            stSize.Set(sz and tostring(sz) or "—")
+            local has = HasChunk()
+            stChunk.Set(has and "Sim" or "Não", has and C.Success or C.TextDim)
+            local bed = IsOnBedrock()
+            stBed.Set(bed and "Sim" or "Não", bed and C.Warning or C.TextDim)
+            local fs = grabState.failSince
+            stFail.Set(fs and (math.floor(tick() - fs) .. " s") or "—", fs and C.Warning or C.TextDim)
+            local cd = grabCooldown.until_ - tick()
+            stCd.Set(cd > 0 and (string.format("%.1f s", cd)) or "—", cd > 0 and C.Warning or C.TextDim)
+            local anch = IsHRPAnchored()
+            stHrp.Set(anch and "Sim" or "Não", anch and C.Danger or C.Success)
+            local ss = GetServerSettings()
+            local paused = ss and ss:FindFirstChild("Paused")
+            if paused then stMap.Set(paused.Value and "Pausado" or "Rodando", paused.Value and C.Danger or C.Success) end
+            local nr = NextRewardIn()
+            if nr == nil then stReward.Set("—")
+            elseif nr <= 0 then stReward.Set("Pronta!", C.Success)
+            else stReward.Set(Fmt(nr)) end
+            local n = CountActive()
+            stActive.Set(tostring(n), n > 0 and C.Success or C.TextDim)
+        end)
+    end)
+
+    Z.Sep("⏸️  AUTO-OFF DO GRAB")
+    Z.Toggle("Desligar grab se parado e sem crescer", S.autoOffGrabEnabled, function(v)
+        S.autoOffGrabEnabled = v
+        if not v then ResetAutoOff() end
+    end, "Desliga o Auto Grab quando o jogador fica parado e o tamanho não cresce")
+    
+    Z.Slider("Tempo sem crescer + parado", 1, 30, S.autoOffGrabThreshold, function(v)
+        S.autoOffGrabThreshold = v
+    end, { step = 0.5, suffix = " s" })
+    Z.Info("Quando o Grab é desligado por esse motivo, ele só religa sozinho quando o HRP do jogador desancorar.")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- INICIAR
 -- ═══════════════════════════════════════════════════════════════════════
 Z.AddTab("Main", "🎮", LoadMain)
 Z.AddTab("Chunk", "🌾", LoadChunk)
+Z.AddTab("Misc", "⚙️", LoadMisc)
 Z.AddTab("Presets", "📦", LoadPresets)
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -894,5 +900,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v9.1 carregado!", C.Success, 3)
-print("⚡ ETW Module v9.1 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v9.2 carregado!", C.Success, 3)
+print("⚡ ETW Module v9.2 iniciado")
