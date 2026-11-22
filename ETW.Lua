@@ -1,7 +1,7 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v13.8 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  ZUNI HUB - ETW MODULE v13.9 - EDICÃO LEVE + SALVAMENTO            ║
 -- ║  Anti-Void • Auto Upgrade c/ saldo • Teleporte Timed 91min         ║
--- ║  Contagem persistente • Botão de ciclo manual • SEM rejoin         ║
+-- ║  Contagem persistente (salva ANTES de teleportar) • SEM rejoin     ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -26,7 +26,7 @@ local HttpService = game:GetService("HttpService")
 local SAVE_FILE = "ZuniETW_Config.json"
 local TELEPORT_MAX = 2
 local TELEPORT_WAIT = 10
-local TELEPORT_BASE_INTERVAL = 91 * 60  -- 91 minutos em segundos
+local TELEPORT_BASE_INTERVAL = 91 * 60  -- 91 minutos
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- CONFIG
@@ -97,7 +97,7 @@ Def("teleportTimedEnabled", false)
 Def("teleportTimedInterval", TELEPORT_BASE_INTERVAL)
 Def("teleportCount", 0)
 Def("teleportMapType", "Normal")
-Def("teleportLastRunAt", 0)  -- tick() da última execução bem-sucedida
+Def("teleportLastRunAt", 0)
 
 -- Anti-Void
 Def("antiVoidEnabled", true)
@@ -135,6 +135,8 @@ local function LoadConfig()
 end
 
 LoadConfig()
+print(string.format("[ETW] Config carregada. teleportCount = %s | teleportMapType = %s",
+    tostring(S.teleportCount), tostring(S.teleportMapType)))
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- HELPERS
@@ -616,20 +618,18 @@ local function UnpauseSkipPause(reason)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- TELEPORTE TIMED MEGA/NORMAL
+-- TELEPORTE TIMED MEGA/NORMAL (contagem persistente)
 -- ═══════════════════════════════════════════════════════════════════════
 -- A cada 91 min, faz o ciclo:
---   1. Teleporta pro mapa OPOSTO ao atual
---   2. Espera 10s -> teleportCount = 1
---   3. Teleporta de volta pro original
---   4. Espera 10s -> teleportCount = 2
---   5. Reseta pra 0 e espera mais 91 min
+--   1. Incrementa e SALVA a contagem ANTES de teleportar
+--   2. Teleporta pro mapa OPOSTO ao atual
+--   3. Espera 10s -> se falhou, reverte a contagem
+--   4. Se chegou em 2, salva o reset pra 0 ANTES de voltar
+--   5. Teleporta de volta pro original
+--   6. Espera 10s
 --
--- A contagem é persistida no JSON e NÃO é resetada ao re-entrar.
--- Se o player sair no meio de um ciclo, a contagem fica onde estava.
--- Só incrementa quando o passo termina com sucesso.
--- O timer (teleportLastRunAt) também é salvo: se o player ficou 2h offline,
--- o próximo ciclo acontece assim que ele entrar (não espera 91 min de novo).
+-- A contagem é salva ANTES do teleporte para sobreviver ao reload do mapa.
+-- Se o player sair no meio, a contagem fica onde estava (persistida).
 
 local function GetCurrentMapType()
     return S.teleportMapType or "Normal"
@@ -659,11 +659,9 @@ local function DoMapTeleport(targetType)
     end
 end
 
--- Executa o ciclo completo. Retorna true se concluiu.
 local function RunTeleportCycleBlocking(reason)
     local count = tonumber(S.teleportCount) or 0
 
-    -- Se já está no máximo (2), reseta e não teleporta
     if count >= TELEPORT_MAX then
         Z.Notify("Teleporte",
             string.format("Contagem já em %d/%d. Resetando para 0.", count, TELEPORT_MAX),
@@ -673,41 +671,56 @@ local function RunTeleportCycleBlocking(reason)
         return true
     end
 
-    -- Passo 1: teleporta pro mapa oposto
+    -- ✅ Passo 1: incrementa e SALVA ANTES de teleportar
+    local newCount = count + 1
+    S.teleportCount = newCount
+    SaveConfig()
+    Z.Notify("Teleporte",
+        string.format("Contagem atualizada para %d/%d (salva).", newCount, TELEPORT_MAX),
+        C.Success, 2)
+
+    -- ✅ Passo 2: só depois teleporta pro mapa oposto
     local current = GetCurrentMapType()
     local firstTarget = (current == "Mega") and "Normal" or "Mega"
     Z.Notify("Teleporte",
-        string.format("[%d/%d] Indo para %s...", count + 1, TELEPORT_MAX, firstTarget),
+        string.format("[%d/%d] Indo para %s...", newCount, TELEPORT_MAX, firstTarget),
         C.Accent, 3)
+
     if not DoMapTeleport(firstTarget) then
+        -- ❌ Falhou: reverte a contagem
+        S.teleportCount = count
+        SaveConfig()
+        Z.Notify("Teleporte", "Falha ao teleportar. Contagem revertida.", C.Danger, 3)
         return false
     end
 
     task.wait(TELEPORT_WAIT)
     if not Z.Alive then return false end
 
-    -- ✅ Só incrementa a contagem APÓS o teleporte ter sucesso
-    S.teleportCount = count + 1
-    SaveConfig()
     Z.Notify("Teleporte",
         string.format("Carregou. Contagem = %d/%d", S.teleportCount, TELEPORT_MAX),
         C.Success, 2)
 
-    -- Passo 2: se chegou em 2, volta pro original e reseta
+    -- ✅ Passo 3: se chegou em 2, salva o reset ANTES de voltar
     if S.teleportCount >= TELEPORT_MAX then
         local secondTarget = (firstTarget == "Mega") and "Normal" or "Mega"
         Z.Notify("Teleporte",
             string.format("[%d/%d] Voltando para %s...", S.teleportCount, TELEPORT_MAX, secondTarget),
             C.Accent, 3)
+
+        S.teleportCount = 0
+        SaveConfig()
+
         if not DoMapTeleport(secondTarget) then
+            S.teleportCount = TELEPORT_MAX
+            SaveConfig()
+            Z.Notify("Teleporte", "Falha ao voltar. Contagem restaurada.", C.Danger, 3)
             return false
         end
 
         task.wait(TELEPORT_WAIT)
         if not Z.Alive then return false end
 
-        S.teleportCount = 0
-        SaveConfig()
         Z.Notify("Teleporte",
             "Ciclo completo. Contagem resetada para 0.",
             C.Warning, 4)
@@ -720,8 +733,6 @@ end
 local teleportTimerState = { lastRunAt = 0 }
 
 local function InitTeleportTimer()
-    -- Restaura o timer do JSON. Se o player ficou offline por mais de 91 min,
-    -- o próximo ciclo acontece no próximo tick.
     teleportTimerState.lastRunAt = tonumber(S.teleportLastRunAt) or 0
 end
 
@@ -737,23 +748,19 @@ NewFeature("teleportTimed", "Teleporte Mega/Normal (Timed)", function()
     local interval = tonumber(S.teleportTimedInterval) or TELEPORT_BASE_INTERVAL
     local last = teleportTimerState.lastRunAt
 
-    -- Primeira vez: inicializa o timer sem teleportar
     if last == 0 then
         teleportTimerState.lastRunAt = now
         SaveTeleportTimer()
         return 5
     end
 
-    -- Verifica se já passou o intervalo
     if (now - last) < interval then
         return 5
     end
 
-    -- Atualiza o timer ANTES de rodar (se o ciclo falhar, tenta de novo no próximo intervalo)
     teleportTimerState.lastRunAt = now
     SaveTeleportTimer()
 
-    -- Roda o ciclo (bloqueante)
     task.spawn(function()
         RunTeleportCycleBlocking("Timed 91min")
     end)
@@ -1637,7 +1644,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadTeleport()
     Z.Sep("🔁  TELEPORTE MEGA/NORMAL (TIMED)")
-    Z.Info("A cada 91 min (1:31), faz o ciclo: vai pro mapa oposto, espera 10s, volta, espera 10s. Contagem reseta em 2.")
+    Z.Info("A cada 91 min (1:31), faz o ciclo: vai pro mapa oposto, espera 10s, volta, espera 10s. Contagem reseta em 2. A contagem é salva ANTES de teleportar, para sobreviver ao reload do mapa.")
 
     UI.teleportTimed = Z.Toggle("Ativar Teleporte Timed (91 min)", Features.teleportTimed.running, function(v)
         SetFeature("teleportTimed", v, true)
@@ -1693,8 +1700,8 @@ local function LoadTeleport()
     end)
 
     Z.Sep("ℹ️  SOBRE")
-    Z.Info("A contagem é persistida no JSON e NÃO é resetada ao re-entrar. " ..
-           "Se o player sair no meio do ciclo, a contagem fica onde estava. " ..
+    Z.Info("A contagem é persistida no JSON e salva ANTES de cada teleporte. " ..
+           "Se o mapa recarregar no meio do ciclo, a contagem já está no JSON. " ..
            "O timer também é salvo: se o player ficou 2h offline, o próximo ciclo acontece assim que ele entrar.")
 end
 
@@ -1745,5 +1752,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v13.8 (Teleporte 91min + contagem persistente) carregado!", C.Success, 3)
-print("⚡ ETW Module v13.8 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v13.9 (contagem salva antes do teleporte) carregado!", C.Success, 3)
+print("⚡ ETW Module v13.9 iniciado")
