@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v10.2                                       ║
--- ║  Auto Upgrades (corrigido) • Unstuck • Sem aba de atalhos          ║
+-- ║  ZUNI HUB - ETW MODULE v10.3                                       ║
+-- ║  Revisão completa • Auto Upgrades fix • Skip sem duplicatas        ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -706,6 +706,8 @@ end
 NewFeature("autoUpgrades", "Auto Upgrades", function()
     if not S.autoUpgradesEnabled then return 1 end
     local selected = S.autoUpgradesSelected or {}
+    if type(selected) ~= "table" then return 1 end
+
     local upgradesFolder = GetUpgradesFolder()
     if not upgradesFolder then return 1 end
 
@@ -718,7 +720,11 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
         end
     end
     return math.max(0.1, (S.autoUpgradesInterval or 1000) / 1000)
-end)
+end, {
+    onStop = function()
+        -- reseta flags se precisar
+    end
+})
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- PRESETS
@@ -961,20 +967,21 @@ local function LoadMap()
     end, { suffix = " s" })
 
     Z.Sep("⏭️  SKIP POR TEMPO")
-    FeatureToggle("skipTimer", "Skip Map (Tempo)", "Pula o mapa a cada X segundos")
+    -- Apenas um FeatureToggle é criado por feature, sem duplicata
+    UI.skipTimer = Z.Toggle("Skip Map (Tempo)", Features.skipTimer.running, function(v) SetFeature("skipTimer", v, true) end, "Pula o mapa a cada X segundos")
     Z.Toggle("Ativar Skip por tempo", S.skipTimerEnabled, function(v) S.skipTimerEnabled = v end,
         "Precisa estar ligado para o Skip por tempo funcionar.")
     Z.Slider("Pular a cada", 5, 900, S.skipInterval, function(v) S.skipInterval = v end, { step = 5, suffix = " s" })
 
     Z.Sep("⏭️  SKIP SEM CHUNK")
-    FeatureToggle("skipStuck", "Skip Map (Sem Chunk)", "Pula se tentar pegar e não conseguir por X s")
+    UI.skipStuck = Z.Toggle("Skip Map (Sem Chunk)", Features.skipStuck.running, function(v) SetFeature("skipStuck", v, true) end, "Pula se tentar pegar e não conseguir por X s")
     Z.Toggle("Ativar Skip sem chunk", S.skipStuckEnabled, function(v) S.skipStuckEnabled = v end,
         "Precisa estar ligado para o Skip sem chunk funcionar.")
     Z.Slider("Tempo sem pegar chunk", 3, 120, S.skipStuckTime, function(v) S.skipStuckTime = v end, { suffix = " s" })
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA: UNSTUCK (antes: Size Stuck)
+-- ABA: UNSTUCK
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadUnstuck()
     Z.Sep("📏  SKIP SE SIZE PARAR")
@@ -1041,11 +1048,18 @@ local function RefreshUpgradeButton(name)
     if not btn then return end
     local isSelected = S.autoUpgradesSelected and S.autoUpgradesSelected[name]
 
-    -- Altera a cor de fundo dependendo do estado (verde se selecionado)
-    if isSelected then
-        btn.BackgroundColor3 = C.Success or Color3.fromRGB(82, 176, 77)
-    else
-        btn.BackgroundColor3 = C.TextDim or Color3.fromRGB(60, 60, 60)
+    -- Tenta alterar cor de fundo com segurança
+    local ok, err = pcall(function()
+        if isSelected then
+            btn.BackgroundColor3 = C.Success or Color3.fromRGB(82, 176, 77)
+        else
+            btn.BackgroundColor3 = C.TextDim or Color3.fromRGB(60, 60, 60)
+        end
+    end)
+    if not ok then
+        -- Fallback: se por acaso o botão for uma instância que não tem BackgroundColor3
+        -- (ex: Z.Button retornando um frame), tenta achar o fundo.
+        warn("[ETW] Falha ao alterar cor do botão de upgrade: " .. tostring(err))
     end
 end
 
@@ -1064,19 +1078,25 @@ local function LoadAutoUpgrades()
     Z.Sep("⚡  AUTO UPGRADES")
     Z.Info("Selecione quais upgrades o bot compra automaticamente. O Auto Upgrade tenta comprar a cada 1s.")
 
-    S.autoUpgradesSelected = S.autoUpgradesSelected or {}
+    -- Garante que seja uma tabela válida
+    if type(S.autoUpgradesSelected) ~= "table" then
+        S.autoUpgradesSelected = {}
+    end
 
     for _, name in ipairs(AUTO_UPGRADE_NAMES) do
         local display = GetUpgradeDisplayName(name)
 
-        -- Cria o botão
+        -- Cria o botão (Z.Button) e guarda a referência
         local btn = Z.Button("🎯  " .. display, C.TextDim, function()
             ToggleUpgrade(name)
         end)
 
-        -- Guarda a referência e atualiza a cor inicial
-        upgradeButtons[name] = btn
-        RefreshUpgradeButton(name)
+        if btn then
+            upgradeButtons[name] = btn
+            RefreshUpgradeButton(name)
+        else
+            warn("[ETW] Z.Button retornou nil para o upgrade: " .. name)
+        end
     end
 
     Z.Sep("🤖  AUTOMAÇÃO")
@@ -1104,7 +1124,7 @@ Z.AddTab("Auto Upgrades","⚡", LoadAutoUpgrades)
 Z.AddTab("Presets",     "📦", LoadPresets)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ATALHOS DE TECLADO (funcionam, mas não têm aba dedicada)
+-- ATALHOS DE TECLADO
 -- ═══════════════════════════════════════════════════════════════════════
 local function Flip(key) SetFeature(key, not Features[key].running) end
 
@@ -1123,5 +1143,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v10.2 carregado!", C.Success, 3)
-print("⚡ ETW Module v10.2 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v10.3 carregado!", C.Success, 3)
+print("⚡ ETW Module v10.3 iniciado")
