@@ -1,7 +1,7 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v13.1 - EDICÃO LEVE + SALVAMENTO            ║
--- ║  Anti-Void • Presets Editáveis • Auto Upgrade c/ saldo             ║
--- ║  Rejoin no MESMO servidor (TeleportToPlaceInstance)                ║
+-- ║  ZUNI HUB - ETW MODULE v13.2 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  Anti-Void • Presets Editáveis (criar/deletar na hora)             ║
+-- ║  Auto Upgrade c/ saldo • Rejoin no mesmo servidor • Botão Rejoin   ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -24,6 +24,7 @@ local RunService = game:GetService("RunService")
 
 local HttpService = game:GetService("HttpService")
 local SAVE_FILE = "ZuniETW_Config.json"
+local REJOIN_MIN = 10
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- CONFIG
@@ -92,7 +93,7 @@ Def("autoUpgradesSelectedName", nil)
 -- Auto Rejoin (Lag)
 Def("autoRejoinEnabled", false)
 Def("autoRejoinFpsLimit", 20)
-Def("autoRejoinTime", 10)
+Def("autoRejoinTime", REJOIN_MIN)
 
 -- Auto Rejoin (Tempo Fixo)
 Def("autoRejoinTimeInterval", 1800)
@@ -966,7 +967,7 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES (v13.1 — não cego, com saldo via espelho)
+-- AUTO UPGRADES
 -- ═══════════════════════════════════════════════════════════════════════
 local autoUpgState = { lastCanBuy = nil }
 
@@ -1054,7 +1055,7 @@ end, {
 })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO REJOIN — DoRejoin CORRIGIDO (TeleportToPlaceInstance)
+-- AUTO REJOIN + BOTÃO MANUAL
 -- ═══════════════════════════════════════════════════════════════════════
 local rejoinState = { lowFpsSince = nil }
 
@@ -1067,20 +1068,14 @@ local function DoRejoin(reason)
     task.wait(1)
 
     local ts = game:GetService("TeleportService")
-
-    -- Detecta se é um servidor privado (VIP)
     local isVip = game.PrivateServerId ~= "" and game.PrivateServerOwnerId ~= 0
 
     if isVip then
-        -- ⚠️ Cliente NÃO PODE usar TeleportAsync com VipServerId.
-        -- O TeleportToPlaceInstance causa erro 773 em VIP.
-        -- Única opção client-side: Teleport normal (vai para um servidor público).
-        Z.Notify("Auto Rejoin", "Servidor VIP detectado. Rejoin no mesmo servidor não é possível pelo cliente. Indo para um servidor público...", C.Warning, 4)
+        Z.Notify("Auto Rejoin", "Servidor VIP: não é possível rejoin no mesmo servidor pelo cliente. Indo para um servidor público...", C.Warning, 4)
         pcall(function()
             ts:Teleport(game.PlaceId, Player)
         end)
     else
-        -- Servidor público: tenta rejoin no mesmo JobId
         local ok, err = pcall(function()
             ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, Player)
         end)
@@ -1098,12 +1093,13 @@ NewFeature("autoRejoin", "Auto Rejoin (Lag)", function()
     
     local fps = Z.FPS
     local now = tick()
+    local minTime = math.max(REJOIN_MIN, tonumber(S.autoRejoinTime) or REJOIN_MIN)
 
     if fps < S.autoRejoinFpsLimit then
         if not rejoinState.lowFpsSince then
             rejoinState.lowFpsSince = now
-        elseif (now - rejoinState.lowFpsSince) >= math.max(5, S.autoRejoinTime) then
-            DoRejoin(string.format("FPS abaixo de %d por %ds. Reconectando...", S.autoRejoinFpsLimit, S.autoRejoinTime))
+        elseif (now - rejoinState.lowFpsSince) >= minTime then
+            DoRejoin(string.format("FPS abaixo de %d por %ds. Reconectando...", S.autoRejoinFpsLimit, minTime))
             rejoinState.lowFpsSince = now
         end
     else
@@ -1113,9 +1109,6 @@ NewFeature("autoRejoin", "Auto Rejoin (Lag)", function()
     return 1
 end, { onStart = function() rejoinState.lowFpsSince = nil end, onStop = function() rejoinState.lowFpsSince = nil end })
 
--- ═══════════════════════════════════════════════════════════════════════
--- AUTO REJOIN (TEMPO FIXO)
--- ═══════════════════════════════════════════════════════════════════════
 local rejoinTimerState = { startedAt = 0 }
 
 local function ResetTimerRejoin()
@@ -1127,9 +1120,10 @@ NewFeature("rejoinTimer", "Auto Rejoin (Tempo)", function()
         rejoinTimerState.startedAt = tick()
     end
     
+    local minInterval = math.max(REJOIN_MIN, tonumber(S.autoRejoinTimeInterval) or REJOIN_MIN)
     local elapsed = tick() - rejoinTimerState.startedAt
-    if elapsed >= S.autoRejoinTimeInterval then
-        DoRejoin(string.format("Tempo de %s atingido. Reconectando...", Fmt(S.autoRejoinTimeInterval)))
+    if elapsed >= minInterval then
+        DoRejoin(string.format("Tempo de %s atingido. Reconectando...", Fmt(minInterval)))
         rejoinTimerState.startedAt = tick()
         return 1
     end
@@ -1138,7 +1132,7 @@ NewFeature("rejoinTimer", "Auto Rejoin (Tempo)", function()
 end, { onStart = ResetTimerRejoin, onStop = ResetTimerRejoin })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- PRESETS
+-- PRESETS — helpers
 -- ═══════════════════════════════════════════════════════════════════════
 local BASE_PRESETS = { normal = true, static = true }
 
@@ -1221,6 +1215,73 @@ local function ApplyPreset(name)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
+-- PRESETS — gerenciamento de botões dinâmicos
+-- ═══════════════════════════════════════════════════════════════════════
+-- Como o Zuni Hub não expõe uma API de "remover botão", vamos criar um
+-- container próprio dentro da aba Presets e gerenciar os botões nele.
+-- A cada criar/deletar, limpamos e recriamos os botões desse container.
+local presetUI = {
+    container = nil,
+    buttons = {},
+}
+
+local function ClearPresetButtons()
+    for _, btn in ipairs(presetUI.buttons) do
+        if btn and btn.Parent then
+            btn:Destroy()
+        end
+    end
+    presetUI.buttons = {}
+end
+
+local function CreatePresetButton(parent, text, color, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 32)
+    btn.BackgroundColor3 = color or Color3.fromRGB(40, 40, 40)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 14
+    btn.Text = text
+    btn.BorderSizePixel = 0
+    btn.Parent = parent
+    btn.Activated:Connect(function()
+        pcall(callback)
+    end)
+    table.insert(presetUI.buttons, btn)
+    return btn
+end
+
+local function RenderCustomPresets()
+    ClearPresetButtons()
+    local container = presetUI.container
+    if not container or not container.Parent then return end
+
+    for name, snap in pairs(S.customPresets or {}) do
+        CreatePresetButton(container, "▶  Aplicar: " .. name, Color3.fromRGB(50, 120, 50), function()
+            ApplyPreset(name)
+        end)
+        CreatePresetButton(container, "✏️  Editar: " .. name, Color3.fromRGB(150, 120, 30), function()
+            S.customPresets[name] = SnapshotCurrent()
+            SaveConfig()
+            Z.Notify("Preset", "Preset '" .. name .. "' atualizado com o estado atual.", C.Success, 2.5)
+        end)
+        CreatePresetButton(container, "🗑️  Deletar: " .. name, Color3.fromRGB(150, 40, 40), function()
+            S.customPresets[name] = nil
+            SaveConfig()
+            Z.Notify("Preset", "Preset '" .. name .. "' deletado.", C.TextDim, 2.5)
+            -- ✅ Recria os botões imediatamente (remove o botão do preset deletado)
+            task.defer(RenderCustomPresets)
+        end)
+        -- Espaçador
+        local spacer = Instance.new("Frame")
+        spacer.Size = UDim2.new(1, 0, 0, 6)
+        spacer.BackgroundTransparency = 1
+        spacer.Parent = container
+        table.insert(presetUI.buttons, spacer)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- ABA: PRESETS
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadPresets()
@@ -1230,30 +1291,29 @@ local function LoadPresets()
     Z.Button("🧱  Farm #1 (parado + SkipOnSmartSell)", C.Accent, function() ApplyPreset("static") end)
 
     Z.Sep("🛠️  PRESETS PERSONALIZADOS")
-    Z.Info("Crie um preset a partir do estado atual (features ligadas + settings).")
+    Z.Info("Crie, edite ou delete presets. Os botões aparecem abaixo e são atualizados na hora.")
 
-    for name, snap in pairs(S.customPresets or {}) do
-        Z.Button("▶  Aplicar: " .. name, C.Accent, function() ApplyPreset(name) end)
-        Z.Button("✏️  Editar: " .. name, C.Warning, function()
-            S.customPresets[name] = SnapshotCurrent()
-            SaveConfig()
-            Z.Notify("Preset", "Preset '" .. name .. "' atualizado com o estado atual.", C.Success, 2.5)
-        end)
-        Z.Button("🗑️  Deletar: " .. name, C.Danger, function()
-            S.customPresets[name] = nil
-            SaveConfig()
-            Z.Notify("Preset", "Preset '" .. name .. "' deletado.", C.TextDim, 2.5)
-        end)
-    end
+    -- ✅ Container próprio para os botões dinâmicos
+    local container = Instance.new("Frame")
+    container.Name = "CustomPresetsContainer"
+    container.Size = UDim2.new(1, 0, 0, 0)
+    container.AutomaticSize = Enum.AutomaticSize.Y
+    container.BackgroundTransparency = 1
+    container.Parent = Z.Content or Z.Scroll or Z.Page or Z.MainFrame or Z.Gui or game:GetService("CoreGui")
+    presetUI.container = container
+
+    -- Renderiza os presets existentes
+    RenderCustomPresets()
 
     Z.Sep("➕  CRIAR NOVO PRESET")
+    Z.Info("Digite um nome e clique em Criar. O preset usa o estado atual (features ligadas + settings).")
+
+    -- TextBox (se o Zuni Hub tiver)
     local nameBox
     if Z.TextBox then
-        nameBox = Z.TextBox("Nome do novo preset", "", "Digite um nome (sem espaços).", function(txt) end)
+        nameBox = Z.TextBox("Nome do novo preset", "", "Ex: MeuFarm", function(txt) end)
     elseif Z.Input then
-        nameBox = Z.Input("Nome do novo preset", "", "Digite um nome (sem espaços).")
-    else
-        Z.Info("⚠ Zuni Hub não expõe TextBox. Use o botão abaixo que pede via prompt.")
+        nameBox = Z.Input("Nome do novo preset", "", "Ex: MeuFarm")
     end
 
     Z.Button("💾  Criar preset com estado atual", C.Success, function()
@@ -1279,13 +1339,15 @@ local function LoadPresets()
             Z.Notify("Preset", "Não pode sobrescrever preset base.", C.Danger, 2)
             return
         end
+        if S.customPresets[name] then
+            Z.Notify("Preset", "Já existe um preset com esse nome. Use Editar ou escolha outro.", C.Warning, 2.5)
+            return
+        end
         S.customPresets[name] = SnapshotCurrent()
         SaveConfig()
         Z.Notify("Preset", "Preset '" .. name .. "' criado a partir do estado atual.", C.Success, 3)
-    end)
-
-    Z.Button("🔄  Recarregar lista de presets", C.Accent, function()
-        Z.Notify("Preset", "Recarregue a aba (troque e volte) para ver a lista atualizada.", C.TextDim, 3)
+        -- ✅ Recria os botões imediatamente (aparece o novo preset)
+        task.defer(RenderCustomPresets)
     end)
 
     Z.Sep("🛡️  ANTI-VOID")
@@ -1321,9 +1383,9 @@ local function LoadPresets()
     Z.Sep("ℹ️  SOBRE")
     Z.Info("Normal Farm: Grab + Eat + Smart Sell + Rewards + Unstuck + Auto Walk + Teleporte após falha + Anti-Void.\n" ..
            "Farm #1: parado, com SkipOnSmartSell + Anti-Void.\n" ..
-           "Presets personalizados: snapshot do estado atual (features + settings + Anti-Void).\n" ..
+           "Presets personalizados: criar/editar/deletar com botões atualizados na hora.\n" ..
            "Anti-Void: Part gigante na Bedrock para evitar queda no void.\n" ..
-           "Rejoin: TeleportToPlaceInstance (mesmo servidor) com fallback para Teleport.")
+           "Rejoin: TeleportToPlaceInstance (mesmo servidor) com fallback para Teleport. Em VIP, vai para servidor público.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1400,6 +1462,10 @@ local function LoadMain()
         Z.Notify("ETW", "Farm completo ativado.", C.Success, 2)
     end)
     Z.Button("⏭  Pular mapa agora", C.Accent, function() SkipMap("Mapa pulado.") end)
+    -- ✅ BOTÃO DE REJOIN MANUAL
+    Z.Button("🔄  Dar Rejoin agora", C.Warning, function()
+        DoRejoin("Rejoin manual solicitado.")
+    end)
     Z.Button("⏹  Desligar tudo", C.Danger, function()
         for key in pairs(Features) do SetFeature(key, false, true) end
         ResetAutoOff(); ResetSizeStuck()
@@ -1723,7 +1789,12 @@ end
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadAutoRejoin()
     Z.Sep("🔄  AUTO REJOIN (LAG)")
-    Z.Info("Rejoin usa TeleportToPlaceInstance (mesmo servidor). Se o servidor fechou, cai no Teleport (qualquer servidor).")
+    Z.Info("Rejoin usa TeleportToPlaceInstance (mesmo servidor). Se o servidor fechou ou é VIP, cai no Teleport (qualquer servidor).")
+
+    -- ✅ BOTÃO DE REJOIN MANUAL AQUI TAMBÉM
+    Z.Button("🔄  Dar Rejoin agora (manual)", C.Warning, function()
+        DoRejoin("Rejoin manual solicitado.")
+    end)
 
     Z.Toggle("Ativar Auto Rejoin (Lag)", S.autoRejoinEnabled, function(v) 
         S.autoRejoinEnabled = v 
@@ -1733,8 +1804,8 @@ local function LoadAutoRejoin()
         S.autoRejoinFpsLimit = v 
         SaveConfig()
     end, { suffix = " FPS" })
-    Z.Slider("Tempo de lag para rejoin", 10, 300, S.autoRejoinTime, function(v) 
-        S.autoRejoinTime = v 
+    Z.Slider("Tempo de lag para rejoin (mín. 10s)", REJOIN_MIN, 300, math.max(REJOIN_MIN, S.autoRejoinTime), function(v) 
+        S.autoRejoinTime = math.max(REJOIN_MIN, v)
         SaveConfig()
     end, { suffix = " s" })
 
@@ -1744,13 +1815,13 @@ local function LoadAutoRejoin()
         SetFeature("rejoinTimer", v, true)
     end, "Reconecta após um tempo fixo, independente do lag. Mesmo servidor.")
 
-    Z.Slider("Reconectar a cada (minutos)", 1, 120, math.floor(S.autoRejoinTimeInterval / 60), function(v) 
-        S.autoRejoinTimeInterval = v * 60
+    Z.Slider("Reconectar a cada (segundos, mín. 10s)", REJOIN_MIN, 7200, math.max(REJOIN_MIN, S.autoRejoinTimeInterval), function(v) 
+        S.autoRejoinTimeInterval = math.max(REJOIN_MIN, v)
         if Features.rejoinTimer and Features.rejoinTimer.running then
             rejoinTimerState.startedAt = tick()
         end
         SaveConfig()
-    end, { step = 1, suffix = " min" })
+    end, { step = REJOIN_MIN, suffix = " s" })
 
     local stTimer = Z.Stat("Próximo Rejoin (Timer)", "—")
     Z.PageLoop(0.5, function()
@@ -1763,8 +1834,9 @@ local function LoadAutoRejoin()
                 stTimer.Set("Aguardando...", C.TextDim)
                 return
             end
+            local minInterval = math.max(REJOIN_MIN, tonumber(S.autoRejoinTimeInterval) or REJOIN_MIN)
             local elapsed = tick() - rejoinTimerState.startedAt
-            local remaining = math.max(0, S.autoRejoinTimeInterval - elapsed)
+            local remaining = math.max(0, minInterval - elapsed)
             stTimer.Set(Fmt(remaining), remaining <= 60 and C.Danger or C.Success)
         end)
     end)
@@ -1818,5 +1890,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v13.1 (Rejoin no mesmo servidor) carregado!", C.Success, 3)
-print("⚡ ETW Module v13.1 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v13.2 (Rejoin manual + Presets dinâmicos) carregado!", C.Success, 3)
+print("⚡ ETW Module v13.2 iniciado")
