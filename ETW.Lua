@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v11.9 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  ZUNI HUB - ETW MODULE v12.0 - EDICÃO LEVE + SALVAMENTO            ║
 -- ║  Auto Rejoin (Tempo + Lag) • Save Configs • Auto Upgrade Cego      ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -814,10 +814,7 @@ NewFeature("rewards", "Auto Redeem Rewards", function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO UPGRADES (CORRIGIDO — v11.9)
--- ═══════════════════════════════════════════════════════════════════════
--- O toggle da UI (Features.autoUpgrades.running) é a única fonte de verdade.
--- Não depende mais de S.autoUpgradesEnabled (que nunca era setado como true).
+-- AUTO UPGRADES (v12.0 — envia nome exato + popup a cada disparo)
 -- ═══════════════════════════════════════════════════════════════════════
 NewFeature("autoUpgrades", "Auto Upgrades", function()
     local selectedName = S.autoUpgradesSelectedName
@@ -832,8 +829,16 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
     end
     local upgradeValue = upgrades:FindFirstChild(selectedName)
     if not upgradeValue then
-        Z.Notify("Auto Upgrades", "Upgrade '" .. selectedName .. "' não existe!", C.Warning, 3)
-        return 2
+        local valid = {}
+        for _, v in ipairs(upgrades:GetChildren()) do
+            if v:IsA("NumberValue") or v:IsA("IntValue") then
+                table.insert(valid, v.Name)
+            end
+        end
+        warn("[ETW AutoUpgrades] Nome inválido: '" .. tostring(selectedName) ..
+             "'. Válidos: " .. table.concat(valid, ", "))
+        Z.Notify("Auto Upgrades", "Nome inválido: " .. tostring(selectedName), C.Danger, 3)
+        return 5
     end
 
     local purchaseEvent = GetPurchaseEvent()
@@ -847,12 +852,18 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
     end)
 
     if ok then
-        print(string.format("[ETW AutoUpgrades] FireServer('%s') | Nível: %s | Cubes: %s",
+        -- ✅ POPUP confirmando o envio com o nome exato entre aspas
+        Z.Notify("Auto Upgrades",
+            string.format("Enviado: %q | Nível: %s", selectedName, tostring(upgradeValue.Value)),
+            C.Success, 2)
+        -- Log no console (F9) para debug
+        print(string.format("[ETW AutoUpgrades] FireServer(%q) | Nível: %s | Cubes: %s",
             selectedName,
             tostring(upgradeValue.Value),
             tostring(GetCubes() or "?")))
     else
         Z.Notify("Auto Upgrades", "Erro: " .. tostring(err), C.Danger, 3)
+        warn("[ETW AutoUpgrades] Erro ao disparar:", err)
     end
 
     return 10
@@ -1262,61 +1273,53 @@ local function LoadUnstuck()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA: AUTO UPGRADES (CORRIGIDA — v11.9)
+-- ABA: AUTO UPGRADES (v12.0)
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadAutoUpgrades()
     Z.Sep("⚡  AUTO UPGRADES")
-    Z.Info("Selecione o upgrade e ligue o toggle. Dispara PurchaseEvent:FireServer(nomeInterno) a cada 10s.")
+    Z.Info("O dropdown mostra os nomes INTERNOS exatos de LocalPlayer.Upgrades. O FireServer envia esse nome cru, igual ao ShopScript. Um popup confirma cada envio.")
 
+    -- ✅ Dropdown com nomes internos CRUS
     local options = {}
-    local mapToInternal = {}
     local upgradesFolder = Player:FindFirstChild("Upgrades")
 
     if upgradesFolder then
         for _, child in ipairs(upgradesFolder:GetChildren()) do
             if child:IsA("NumberValue") or child:IsA("IntValue") then
-                local internalName = child.Name
-                local display = GetUpgradeDisplayName(internalName)
-                if not mapToInternal[display] then
-                    table.insert(options, display)
-                    mapToInternal[display] = internalName
-                end
+                table.insert(options, child.Name)
             end
         end
     end
 
     if #options == 0 then
         for _, name in ipairs(AUTO_UPGRADE_NAMES) do
-            local display = GetUpgradeDisplayName(name)
-            if not mapToInternal[display] then
-                table.insert(options, display)
-                mapToInternal[display] = name
-            end
+            table.insert(options, name)
         end
-        Z.Info("⚠ LocalPlayer.Upgrades não encontrado. Usando lista fixa.")
+        Z.Info("⚠ LocalPlayer.Upgrades não encontrado. Usando lista fixa (nomes internos).")
     end
 
-    local dropdownObj = Z.Dropdown("Upgrade Alvo", options, nil, function(selectedDisplay)
-        if selectedDisplay and mapToInternal[selectedDisplay] then
-            S.autoUpgradesSelectedName = mapToInternal[selectedDisplay]
-            Z.Notify("Auto Upgrades", "Selecionado: " .. selectedDisplay .. " (" .. S.autoUpgradesSelectedName .. ")", C.Success, 2)
+    table.sort(options)
+
+    local dropdownObj = Z.Dropdown("Upgrade Alvo", options, nil, function(selected)
+        if selected and selected ~= "" then
+            S.autoUpgradesSelectedName = selected
+            local upgrades = Player:FindFirstChild("Upgrades")
+            local val = upgrades and upgrades:FindFirstChild(selected)
+            local lvl = val and val.Value or "?"
+            print(string.format("[ETW AutoUpgrades] Selecionado: %q | Nível: %s", selected, tostring(lvl)))
+            Z.Notify("Auto Upgrades", "Selecionado: " .. selected .. " (Nível: " .. tostring(lvl) .. ")", C.Success, 2)
         else
             S.autoUpgradesSelectedName = nil
         end
         SaveConfig()
-    end, "Qual upgrade deve ser comprado?")
+    end, "Nome interno do upgrade (igual ao ShopScript)")
 
     if S.autoUpgradesSelectedName then
-        for display, internal in pairs(mapToInternal) do
-            if internal == S.autoUpgradesSelectedName then
-                dropdownObj.Set(display, true)
-                break
-            end
-        end
+        dropdownObj.Set(S.autoUpgradesSelectedName, true)
     end
 
     Z.Sep("📊  STATUS")
-    local stUpgName  = Z.Stat("Upgrade", "—")
+    local stUpgName  = Z.Stat("Upgrade (interno)", "—")
     local stUpgLevel = Z.Stat("Nível", "—")
     local stUpgPrice = Z.Stat("Preço próximo", "—")
     local stCubes    = Z.Stat("Cubes", "—")
@@ -1324,7 +1327,7 @@ local function LoadAutoUpgrades()
     Z.PageLoop(0.5, function()
         pcall(function()
             local name = S.autoUpgradesSelectedName
-            stUpgName.Set(name and GetUpgradeDisplayName(name) or "—")
+            stUpgName.Set(name or "—")
             stUpgLevel.Set(name and tostring(GetUpgradeValue(name) or "—") or "—")
             stUpgPrice.Set(name and tostring(GetUpgradePrice(name) or "—") or "—")
             stCubes.Set(tostring(GetCubes() or "—"))
@@ -1335,12 +1338,17 @@ local function LoadAutoUpgrades()
 
     Z.Sep("🤖  AUTOMAÇÃO")
     FeatureToggle("autoUpgrades", "Auto Upgrade (Cego)",
-        "Dispara PurchaseEvent:FireServer(nomeInterno) a cada 10s. O servidor valida saldo/preço.")
+        "Dispara PurchaseEvent:FireServer(nomeInternoExato) a cada 10s. Popup confirma cada envio.")
 
     Z.Button("🧪  Testar compra agora (manual)", C.Accent, function()
         local name = S.autoUpgradesSelectedName
         if not name then
             Z.Notify("Auto Upgrades", "Selecione um upgrade primeiro!", C.Warning, 2)
+            return
+        end
+        local upgrades = Player:FindFirstChild("Upgrades")
+        if not upgrades or not upgrades:FindFirstChild(name) then
+            Z.Notify("Auto Upgrades", "Nome inválido: " .. tostring(name), C.Danger, 2)
             return
         end
         local ev = GetPurchaseEvent()
@@ -1350,15 +1358,16 @@ local function LoadAutoUpgrades()
         end
         local ok, err = pcall(function() ev:FireServer(name) end)
         if ok then
-            print("[ETW AutoUpgrades] TESTE manual: FireServer('" .. name .. "')")
-            Z.Notify("Auto Upgrades", "Teste enviado: " .. name .. " (veja o console F9)", C.Success, 2)
+            -- ✅ POPUP no teste manual também
+            Z.Notify("Auto Upgrades", string.format("Teste enviado: %q", name), C.Success, 2)
+            print(string.format("[ETW AutoUpgrades] TESTE manual: FireServer(%q)", name))
         else
             Z.Notify("Auto Upgrades", "Erro: " .. tostring(err), C.Danger, 2)
+            warn("[ETW AutoUpgrades] Erro no teste:", err)
         end
     end)
 
-    Z.Info("⚠ O script NÃO verifica saldo ou preço. Se o servidor rejeitar (sem saldo), nada acontece.")
-    Z.Info("💡 Dica: o ShopScript faz exatamente PurchaseEvent:FireServer(child.Name). Este módulo faz o mesmo.")
+    Z.Info("⚠ O nome enviado é o mesmo child.Name de LocalPlayer.Upgrades. Um popup aparece a cada disparo confirmando o envio.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1460,5 +1469,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v11.9 (Auto Upgrade corrigido) carregado!", C.Success, 3)
-print("⚡ ETW Module v11.9 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v12.0 (Auto Upgrade + popup) carregado!", C.Success, 3)
+print("⚡ ETW Module v12.0 iniciado")
