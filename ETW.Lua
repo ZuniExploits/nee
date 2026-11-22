@@ -1,7 +1,7 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v13.6 - EDICÃO LEVE + SALVAMENTO            ║
--- ║  Anti-Void • Auto Upgrade c/ saldo • Rejoin c/ ciclo Mega/Normal   ║
--- ║  SEM presets • SEM JobId • Ciclo ANTES do rejoin                   ║
+-- ║  ZUNI HUB - ETW MODULE v13.8 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  Anti-Void • Auto Upgrade c/ saldo • Teleporte Timed 91min         ║
+-- ║  Contagem persistente • Botão de ciclo manual • SEM rejoin         ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -24,9 +24,9 @@ local RunService = game:GetService("RunService")
 
 local HttpService = game:GetService("HttpService")
 local SAVE_FILE = "ZuniETW_Config.json"
-local REJOIN_MIN = 10
 local TELEPORT_MAX = 2
 local TELEPORT_WAIT = 10
+local TELEPORT_BASE_INTERVAL = 91 * 60  -- 91 minutos em segundos
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- CONFIG
@@ -92,23 +92,18 @@ Def("autoPauseDelay", 5)
 Def("autoUpgradesEnabled", false)
 Def("autoUpgradesSelectedName", nil)
 
--- Auto Rejoin (Lag)
-Def("autoRejoinEnabled", false)
-Def("autoRejoinFpsLimit", 20)
-Def("autoRejoinTime", REJOIN_MIN)
-
--- Auto Rejoin (Tempo Fixo)
-Def("autoRejoinTimeInterval", 1800)
+-- Teleporte Timed Mega/Normal
+Def("teleportTimedEnabled", false)
+Def("teleportTimedInterval", TELEPORT_BASE_INTERVAL)
+Def("teleportCount", 0)
+Def("teleportMapType", "Normal")
+Def("teleportLastRunAt", 0)  -- tick() da última execução bem-sucedida
 
 -- Anti-Void
 Def("antiVoidEnabled", true)
 Def("antiVoidPartName", "ZuniAntiVoid")
 Def("antiVoidThickness", 5)
 Def("antiVoidSize", 4000)
-
--- Teleporte Mega/Normal (contagem)
-Def("teleportCount", 0)
-Def("teleportMapType", "Normal")
 
 -- Estado das Features
 Def("ActiveFeatures", {})
@@ -621,18 +616,20 @@ local function UnpauseSkipPause(reason)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- TELEPORTE MEGA/NORMAL — ciclo com contagem
+-- TELEPORTE TIMED MEGA/NORMAL
 -- ═══════════════════════════════════════════════════════════════════════
--- Lógica:
---   1. Deu tempo do rejoin -> teleporta pro mapa OPOSTO ao atual
+-- A cada 91 min, faz o ciclo:
+--   1. Teleporta pro mapa OPOSTO ao atual
 --   2. Espera 10s -> teleportCount = 1
---   3. Teleporta pro mapa OPOSTO de novo (volta ao original)
+--   3. Teleporta de volta pro original
 --   4. Espera 10s -> teleportCount = 2
---   5. Não teleporta mais -> teleportCount = 0
+--   5. Reseta pra 0 e espera mais 91 min
 --
--- IMPORTANTE: o ciclo precisa rodar ATÉ O FIM antes de qualquer rejoin.
--- O RequestTeleport troca de mapa; se você der rejoin no meio, o ciclo
--- é interrompido. Por isso o ciclo é uma função síncrona (usa task.wait).
+-- A contagem é persistida no JSON e NÃO é resetada ao re-entrar.
+-- Se o player sair no meio de um ciclo, a contagem fica onde estava.
+-- Só incrementa quando o passo termina com sucesso.
+-- O timer (teleportLastRunAt) também é salvo: se o player ficou 2h offline,
+-- o próximo ciclo acontece assim que ele entrar (não espera 91 min de novo).
 
 local function GetCurrentMapType()
     return S.teleportMapType or "Normal"
@@ -662,11 +659,11 @@ local function DoMapTeleport(targetType)
     end
 end
 
--- Executa o ciclo completo (síncrono — bloqueia até terminar)
--- Retorna true se o ciclo foi concluído (ou já estava no máximo).
+-- Executa o ciclo completo. Retorna true se concluiu.
 local function RunTeleportCycleBlocking(reason)
     local count = tonumber(S.teleportCount) or 0
 
+    -- Se já está no máximo (2), reseta e não teleporta
     if count >= TELEPORT_MAX then
         Z.Notify("Teleporte",
             string.format("Contagem já em %d/%d. Resetando para 0.", count, TELEPORT_MAX),
@@ -686,10 +683,10 @@ local function RunTeleportCycleBlocking(reason)
         return false
     end
 
-    -- Espera o mapa carregar
     task.wait(TELEPORT_WAIT)
     if not Z.Alive then return false end
 
+    -- ✅ Só incrementa a contagem APÓS o teleporte ter sucesso
     S.teleportCount = count + 1
     SaveConfig()
     Z.Notify("Teleporte",
@@ -712,12 +709,65 @@ local function RunTeleportCycleBlocking(reason)
         S.teleportCount = 0
         SaveConfig()
         Z.Notify("Teleporte",
-            "Ciclo completo. Contagem resetada para 0. Não teleporta mais.",
+            "Ciclo completo. Contagem resetada para 0.",
             C.Warning, 4)
     end
 
     return true
 end
+
+-- Feature: Teleporte Timed Mega/Normal
+local teleportTimerState = { lastRunAt = 0 }
+
+local function InitTeleportTimer()
+    -- Restaura o timer do JSON. Se o player ficou offline por mais de 91 min,
+    -- o próximo ciclo acontece no próximo tick.
+    teleportTimerState.lastRunAt = tonumber(S.teleportLastRunAt) or 0
+end
+
+local function SaveTeleportTimer()
+    S.teleportLastRunAt = teleportTimerState.lastRunAt
+    SaveConfig()
+end
+
+NewFeature("teleportTimed", "Teleporte Mega/Normal (Timed)", function()
+    if not S.teleportTimedEnabled then return 5 end
+
+    local now = tick()
+    local interval = tonumber(S.teleportTimedInterval) or TELEPORT_BASE_INTERVAL
+    local last = teleportTimerState.lastRunAt
+
+    -- Primeira vez: inicializa o timer sem teleportar
+    if last == 0 then
+        teleportTimerState.lastRunAt = now
+        SaveTeleportTimer()
+        return 5
+    end
+
+    -- Verifica se já passou o intervalo
+    if (now - last) < interval then
+        return 5
+    end
+
+    -- Atualiza o timer ANTES de rodar (se o ciclo falhar, tenta de novo no próximo intervalo)
+    teleportTimerState.lastRunAt = now
+    SaveTeleportTimer()
+
+    -- Roda o ciclo (bloqueante)
+    task.spawn(function()
+        RunTeleportCycleBlocking("Timed 91min")
+    end)
+
+    return 5
+end, {
+    onStart = function()
+        InitTeleportTimer()
+        Z.Notify("Teleporte Timed", "Ativado. Intervalo: 91 min.", C.Success, 3)
+    end,
+    onStop = function()
+        Z.Notify("Teleporte Timed", "Desativado.", C.TextDim, 2)
+    end
+})
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- AUTO-OFF DO GRAB
@@ -1163,95 +1213,6 @@ end, {
 })
 
 -- ═══════════════════════════════════════════════════════════════════════
--- AUTO REJOIN (Lag + Tempo) — SEM JobId, ciclo ANTES
--- ═══════════════════════════════════════════════════════════════════════
-local rejoinState = { lowFpsSince = nil }
-
--- Rejoin "real" (só depois do ciclo Mega/Normal). SEM JobId.
--- Usa Teleport simples (qualquer servidor do mesmo jogo).
--- Se você quiser que o rejoin seja SÓ o ciclo Mega/Normal (sem trocar de servidor),
--- comente a linha do ts:Teleport abaixo.
-local function DoRejoinSimple(reason)
-    if not Z.Alive then return end
-    Z.Notify("Auto Rejoin", reason or "Reconectando...", C.Warning, 5)
-    SaveConfig()
-    SetFeature("autoRejoin", false, true)
-    SetFeature("rejoinTimer", false, true)
-
-    -- NÃO usa JobId nem TeleportToPlaceInstance.
-    -- Teleport simples: entra em qualquer servidor do mesmo jogo.
-    local ts = game:GetService("TeleportService")
-    pcall(function()
-        ts:Teleport(game.PlaceId, Player)
-    end)
-end
-
--- Rejoin completo: PRIMEIRO o ciclo Mega/Normal (bloqueante), DEPOIS o rejoin.
--- Se o ciclo não for concluído, NÃO dá rejoin (evita brigar com o RequestTeleport).
-local function DoRejoinWithCycle(reason)
-    if not Z.Alive then return end
-    Z.Notify("Rejoin", "Iniciando ciclo Mega/Normal antes do rejoin...", C.Accent, 3)
-
-    -- Ciclo bloqueante: só retorna quando termina (ou falha)
-    local ok = RunTeleportCycleBlocking(reason)
-    if not ok then
-        Z.Notify("Rejoin", "Ciclo Mega/Normal não concluído. Rejoin cancelado.", C.Warning, 4)
-        return
-    end
-
-    -- Ciclo concluído com sucesso -> agora sim dá o rejoin
-    DoRejoinSimple(reason)
-end
-
-NewFeature("autoRejoin", "Auto Rejoin (Lag)", function()
-    if not S.autoRejoinEnabled then return 1 end
-    
-    local fps = Z.FPS
-    local now = tick()
-    local minTime = math.max(REJOIN_MIN, tonumber(S.autoRejoinTime) or REJOIN_MIN)
-
-    if fps < S.autoRejoinFpsLimit then
-        if not rejoinState.lowFpsSince then
-            rejoinState.lowFpsSince = now
-        elseif (now - rejoinState.lowFpsSince) >= minTime then
-            rejoinState.lowFpsSince = nil
-            -- Roda o ciclo + rejoin em uma task separada (não trava o loop)
-            task.spawn(function()
-                DoRejoinWithCycle(string.format("FPS abaixo de %d por %ds.", S.autoRejoinFpsLimit, minTime))
-            end)
-        end
-    else
-        rejoinState.lowFpsSince = nil
-    end
-
-    return 1
-end, { onStart = function() rejoinState.lowFpsSince = nil end, onStop = function() rejoinState.lowFpsSince = nil end })
-
-local rejoinTimerState = { startedAt = 0 }
-
-local function ResetTimerRejoin()
-    rejoinTimerState.startedAt = tick()
-end
-
-NewFeature("rejoinTimer", "Auto Rejoin (Tempo)", function()
-    if rejoinTimerState.startedAt == 0 then
-        rejoinTimerState.startedAt = tick()
-    end
-    
-    local minInterval = math.max(REJOIN_MIN, tonumber(S.autoRejoinTimeInterval) or REJOIN_MIN)
-    local elapsed = tick() - rejoinTimerState.startedAt
-    if elapsed >= minInterval then
-        rejoinTimerState.startedAt = tick()
-        task.spawn(function()
-            DoRejoinWithCycle(string.format("Tempo de %s atingido.", Fmt(minInterval)))
-        end)
-        return 1
-    end
-    
-    return 1
-end, { onStart = ResetTimerRejoin, onStop = ResetTimerRejoin })
-
--- ═══════════════════════════════════════════════════════════════════════
 -- ABA: MAIN
 -- ═══════════════════════════════════════════════════════════════════════
 local function FeatureToggle(key, name, desc)
@@ -1286,6 +1247,7 @@ local function LoadMain()
     local stAnti   = Z.Stat("Anti-Void", "—")
     local stTpCount = Z.Stat("Teleporte (contagem)", "0/2")
     local stTpMap  = Z.Stat("Mapa atual", "—")
+    local stTpNext = Z.Stat("Próximo teleporte", "—")
     Z.PageLoop(0.5, function()
         pcall(function()
             local sz = GetSize()
@@ -1319,6 +1281,18 @@ local function LoadMain()
             local tc = tonumber(S.teleportCount) or 0
             stTpCount.Set(tostring(tc) .. "/" .. TELEPORT_MAX, tc >= TELEPORT_MAX and C.Danger or C.Accent)
             stTpMap.Set(S.teleportMapType or "—", C.TextDim)
+            if not S.teleportTimedEnabled then
+                stTpNext.Set("Desligado", C.TextDim)
+            else
+                local interval = tonumber(S.teleportTimedInterval) or TELEPORT_BASE_INTERVAL
+                local last = teleportTimerState.lastRunAt
+                if last == 0 then
+                    stTpNext.Set("Aguardando...", C.TextDim)
+                else
+                    local remaining = math.max(0, interval - (tick() - last))
+                    stTpNext.Set(Fmt(remaining), remaining <= 60 and C.Danger or C.Success)
+                end
+            end
         end)
     end)
 
@@ -1330,12 +1304,7 @@ local function LoadMain()
         Z.Notify("ETW", "Farm completo ativado.", C.Success, 2)
     end)
     Z.Button("⏭  Pular mapa agora", C.Accent, function() SkipMap("Mapa pulado.") end)
-    Z.Button("🔄  Dar Rejoin agora (ciclo + rejoin)", C.Warning, function()
-        task.spawn(function()
-            DoRejoinWithCycle("Rejoin manual")
-        end)
-    end)
-    Z.Button("🔁  Ciclo Mega/Normal agora (sem rejoin)", C.Accent, function()
+    Z.Button("🔁  Fazer ciclo Mega/Normal agora", C.Warning, function()
         task.spawn(function()
             RunTeleportCycleBlocking("Manual")
         end)
@@ -1664,19 +1633,22 @@ local function LoadAutoUpgrades()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- ABA: AUTO REJOIN
+-- ABA: TELEPORTE
 -- ═══════════════════════════════════════════════════════════════════════
-local function LoadAutoRejoin()
-    Z.Sep("🔄  AUTO REJOIN (LAG)")
-    Z.Info("Rejoin NÃO usa JobId. O ciclo Mega/Normal roda PRIMEIRO (bloqueante), depois o rejoin simples (Teleport).")
-    Z.Info("Se o ciclo não for concluído, o rejoin é cancelado (evita brigar com o RequestTeleport).")
+local function LoadTeleport()
+    Z.Sep("🔁  TELEPORTE MEGA/NORMAL (TIMED)")
+    Z.Info("A cada 91 min (1:31), faz o ciclo: vai pro mapa oposto, espera 10s, volta, espera 10s. Contagem reseta em 2.")
 
-    Z.Button("🔄  Dar Rejoin agora (ciclo + rejoin)", C.Warning, function()
-        task.spawn(function()
-            DoRejoinWithCycle("Rejoin manual")
-        end)
-    end)
-    Z.Button("🔁  Ciclo Mega/Normal agora (sem rejoin)", C.Accent, function()
+    UI.teleportTimed = Z.Toggle("Ativar Teleporte Timed (91 min)", Features.teleportTimed.running, function(v)
+        SetFeature("teleportTimed", v, true)
+    end, "Liga/desliga o ciclo automático a cada 91 min.")
+
+    Z.Slider("Intervalo (minutos)", 1, 180, math.floor((S.teleportTimedInterval or TELEPORT_BASE_INTERVAL) / 60), function(v)
+        S.teleportTimedInterval = v * 60
+        SaveConfig()
+    end, { step = 1, suffix = " min" })
+
+    Z.Button("🔁  Fazer ciclo Mega/Normal agora", C.Warning, function()
         task.spawn(function()
             RunTeleportCycleBlocking("Manual")
         end)
@@ -1686,54 +1658,44 @@ local function LoadAutoRejoin()
         SaveConfig()
         Z.Notify("Teleporte", "Contagem resetada para 0.", C.Success, 2)
     end)
+    Z.Button("⏱  Resetar timer (força próximo ciclo agora)", C.Accent, function()
+        teleportTimerState.lastRunAt = 0
+        SaveTeleportTimer()
+        Z.Notify("Teleporte", "Timer resetado. Próximo ciclo no próximo tick.", C.Success, 2)
+    end)
 
-    Z.Toggle("Ativar Auto Rejoin (Lag)", S.autoRejoinEnabled, function(v) 
-        S.autoRejoinEnabled = v 
-        SaveConfig()
-    end, "Liga/desliga o rejoin por lag.")
-    Z.Slider("FPS mínimo (Lag)", 5, 60, S.autoRejoinFpsLimit, function(v) 
-        S.autoRejoinFpsLimit = v 
-        SaveConfig()
-    end, { suffix = " FPS" })
-    Z.Slider("Tempo de lag para rejoin (mín. 10s)", REJOIN_MIN, 300, math.max(REJOIN_MIN, S.autoRejoinTime), function(v) 
-        S.autoRejoinTime = math.max(REJOIN_MIN, v)
-        SaveConfig()
-    end, { suffix = " s" })
-
-    Z.Sep("⏱️  REJOIN POR TEMPO (FIXO)")
-    
-    UI.rejoinTimer = Z.Toggle("Auto Rejoin (Tempo)", Features.rejoinTimer.running, function(v)
-        SetFeature("rejoinTimer", v, true)
-    end, "Reconecta após um tempo fixo, independente do lag. Ciclo Mega/Normal antes.")
-
-    Z.Slider("Reconectar a cada (segundos, mín. 10s)", REJOIN_MIN, 7200, math.max(REJOIN_MIN, S.autoRejoinTimeInterval), function(v) 
-        S.autoRejoinTimeInterval = math.max(REJOIN_MIN, v)
-        if Features.rejoinTimer and Features.rejoinTimer.running then
-            rejoinTimerState.startedAt = tick()
-        end
-        SaveConfig()
-    end, { step = REJOIN_MIN, suffix = " s" })
-
-    local stTimer = Z.Stat("Próximo Rejoin (Timer)", "—")
-    local stTpCount = Z.Stat("Teleporte (contagem)", "0/2")
-    local stTpMap = Z.Stat("Mapa atual", "—")
+    Z.Sep("📊  STATUS")
+    local stCount = Z.Stat("Contagem", "0/2")
+    local stMap   = Z.Stat("Mapa atual", "—")
+    local stNext  = Z.Stat("Próximo ciclo", "—")
+    local stLast  = Z.Stat("Último ciclo", "—")
     Z.PageLoop(0.5, function()
         pcall(function()
-            if not Features.rejoinTimer or not Features.rejoinTimer.running then
-                stTimer.Set("Desligado", C.TextDim)
-            elseif rejoinTimerState.startedAt == 0 then
-                stTimer.Set("Aguardando...", C.TextDim)
-            else
-                local minInterval = math.max(REJOIN_MIN, tonumber(S.autoRejoinTimeInterval) or REJOIN_MIN)
-                local elapsed = tick() - rejoinTimerState.startedAt
-                local remaining = math.max(0, minInterval - elapsed)
-                stTimer.Set(Fmt(remaining), remaining <= 60 and C.Danger or C.Success)
-            end
             local tc = tonumber(S.teleportCount) or 0
-            stTpCount.Set(tostring(tc) .. "/" .. TELEPORT_MAX, tc >= TELEPORT_MAX and C.Danger or C.Accent)
-            stTpMap.Set(S.teleportMapType or "—", C.TextDim)
+            stCount.Set(tostring(tc) .. "/" .. TELEPORT_MAX, tc >= TELEPORT_MAX and C.Danger or C.Accent)
+            stMap.Set(S.teleportMapType or "—", C.TextDim)
+            if not S.teleportTimedEnabled then
+                stNext.Set("Desligado", C.TextDim)
+            else
+                local interval = tonumber(S.teleportTimedInterval) or TELEPORT_BASE_INTERVAL
+                local last = teleportTimerState.lastRunAt
+                if last == 0 then
+                    stNext.Set("Aguardando...", C.TextDim)
+                else
+                    local remaining = math.max(0, interval - (tick() - last))
+                    stNext.Set(Fmt(remaining), remaining <= 60 and C.Danger or C.Success)
+                end
+            end
+            local last = teleportTimerState.lastRunAt
+            if last == 0 then stLast.Set("—", C.TextDim)
+            else stLast.Set(Fmt(tick() - last) .. " atrás", C.TextDim) end
         end)
     end)
+
+    Z.Sep("ℹ️  SOBRE")
+    Z.Info("A contagem é persistida no JSON e NÃO é resetada ao re-entrar. " ..
+           "Se o player sair no meio do ciclo, a contagem fica onde estava. " ..
+           "O timer também é salvo: se o player ficou 2h offline, o próximo ciclo acontece assim que ele entrar.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -1747,7 +1709,7 @@ Z.AddTab("Rewards",     "🎁", LoadRewards)
 Z.AddTab("Map",         "🗺️", LoadMap)
 Z.AddTab("Unstuck",     "📏", LoadUnstuck)
 Z.AddTab("Auto Upgrades","⚡", LoadAutoUpgrades)
-Z.AddTab("Auto Rejoin", "🔄", LoadAutoRejoin)
+Z.AddTab("Teleporte",   "🔁", LoadTeleport)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- RESTAURA AS FUNÇÕES ATIVAS (AUTO-START)
@@ -1783,5 +1745,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v13.6 (ciclo antes do rejoin, sem JobId, sem presets) carregado!", C.Success, 3)
-print("⚡ ETW Module v13.6 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v13.8 (Teleporte 91min + contagem persistente) carregado!", C.Success, 3)
+print("⚡ ETW Module v13.8 iniciado")
