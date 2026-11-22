@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v8.2                                        ║
+-- ║  ZUNI HUB - ETW MODULE v8.3                                        ║
 -- ║  Presets • Bedrock • Grab cooldown • Auto-off por HRP ancorado     ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -19,7 +19,7 @@ local UI     = Z.UI
 local Player = game:GetService("Players").LocalPlayer
 local UIS    = game:GetService("UserInputService")
 local RS     = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+local RunService = game:GetService("RunService") -- FIX: Declaração do RunService
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- CONFIG
@@ -55,7 +55,7 @@ Def("grabFailMoveDuration", 3.0)
 Def("grabFailCooldown", 3.0)
 Def("bedrockSkipTime", 4.0)
 Def("skipOnSmartSell", false)
-Def("autoOffGrabThreshold", 5.0)   -- segundos sem crescer + parado para desligar o grab
+Def("autoOffGrabThreshold", 5.0)
 Def("autoOffGrabEnabled", true)
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -245,7 +245,7 @@ local autoOff = {
     sameSizeSince = nil,
     lastPos = nil,
     stuckSince = nil,
-    watching = false,       -- true quando o grab foi desligado por este motivo
+    watching = false,
     offSince = 0,
 }
 
@@ -867,5 +867,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v8.2 carregado!", C.Success, 3)
-print("⚡ ETW Module v8.2 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v8.3 carregado!", C.Success, 3)
+print("⚡ ETW Module v8.3 iniciado")
